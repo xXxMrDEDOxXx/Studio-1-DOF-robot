@@ -1,0 +1,4 @@
+../Core/Src/cascade_control.c:41:14:calculate_pid	32	static
+../Core/Src/cascade_control.c:51:13:Motor_Drive	24	static
+../Core/Src/cascade_control.c:70:6:Cascade_Control_Init	4	static
+../Core/Src/cascade_control.c:79:6:Cascade_Control_Update	64	static
