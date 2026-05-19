@@ -38,8 +38,6 @@
         * Output
         * EVENT_OUT
         * EXTI
-     PA2   ------> LPUART1_TX
-     PA3   ------> LPUART1_RX
 */
 void MX_GPIO_Init(void)
 {
@@ -54,12 +52,13 @@ void MX_GPIO_Init(void)
 
   /*Configure GPIO pin Output Level */
   HAL_GPIO_WritePin(Motor_Dir_GPIO_Port, Motor_Dir_Pin, GPIO_PIN_RESET);
+  HAL_GPIO_WritePin(GPIOA, GPIO_PIN_5, GPIO_PIN_RESET);  /* LD2 debug LED */
 
-  /*Configure GPIO pin : Blue_button_Pin */
-  GPIO_InitStruct.Pin = Blue_button_Pin;
-  GPIO_InitStruct.Mode = GPIO_MODE_INPUT;
-  GPIO_InitStruct.Pull = GPIO_NOPULL;
-  HAL_GPIO_Init(Blue_button_GPIO_Port, &GPIO_InitStruct);
+  /*Configure GPIO pin : E_stop_Pin */
+  GPIO_InitStruct.Pin = E_stop_Pin;
+  GPIO_InitStruct.Mode = GPIO_MODE_IT_RISING_FALLING;
+  GPIO_InitStruct.Pull = GPIO_PULLUP;
+  HAL_GPIO_Init(E_stop_GPIO_Port, &GPIO_InitStruct);
 
   /*Configure GPIO pin : Motor_Dir_Pin */
   GPIO_InitStruct.Pin = Motor_Dir_Pin;
@@ -68,12 +67,11 @@ void MX_GPIO_Init(void)
   GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
   HAL_GPIO_Init(Motor_Dir_GPIO_Port, &GPIO_InitStruct);
 
-  /*Configure GPIO pins : LPUART1_TX_Pin LPUART1_RX_Pin */
-  GPIO_InitStruct.Pin = LPUART1_TX_Pin|LPUART1_RX_Pin;
-  GPIO_InitStruct.Mode = GPIO_MODE_AF_PP;
+  /*Configure GPIO pin : PA5 (LD2 debug LED) */
+  GPIO_InitStruct.Pin = GPIO_PIN_5;
+  GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
   GPIO_InitStruct.Pull = GPIO_NOPULL;
   GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
-  GPIO_InitStruct.Alternate = GPIO_AF12_LPUART1;
   HAL_GPIO_Init(GPIOA, &GPIO_InitStruct);
 
   /*Configure GPIO pin : homing_signal_Pin */
@@ -81,6 +79,16 @@ void MX_GPIO_Init(void)
   GPIO_InitStruct.Mode = GPIO_MODE_INPUT;
   GPIO_InitStruct.Pull = GPIO_NOPULL;
   HAL_GPIO_Init(homing_signal_GPIO_Port, &GPIO_InitStruct);
+
+  /*Configure GPIO pins : Manual_mode_Pin Auto_Mode_Pin */
+  GPIO_InitStruct.Pin = Manual_mode_Pin|Auto_Mode_Pin;
+  GPIO_InitStruct.Mode = GPIO_MODE_INPUT;
+  GPIO_InitStruct.Pull = GPIO_PULLUP;
+  HAL_GPIO_Init(GPIOB, &GPIO_InitStruct);
+
+  /* EXTI interrupt init*/
+  HAL_NVIC_SetPriority(EXTI15_10_IRQn, 0, 0);
+  HAL_NVIC_EnableIRQ(EXTI15_10_IRQn);
 
 }
 
