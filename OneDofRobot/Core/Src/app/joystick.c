@@ -213,11 +213,15 @@ uint8_t Joystick_Update(void)
         }
     }
 
-    /* ── Button C: Set Home ───────────────────────────────────────────────
-     * ยืนยันตำแหน่งปัจจุบันเป็น home ใหม่ → reset TIM2 encoder counter    */
+    /* ── Button C: Set Home (ตั้ง home เฉยๆ — หุ่นต้องไม่ขยับ) ──────────────
+     * zero encoder + sync KF + re-arm Septic ให้ hold ที่ home ใหม่
+     * (ไม่งั้น point-mode Septic ยังถือ target เก่า → หุ่นวิ่งหลังกด C)        */
     if (btn_edge[BTN_C]) {
-        Homing_SetHome();
-        joy_target_rad = 0.0f;   /* sync point-mode target กับ home ใหม่ */
+        Homing_SetHome();               /* zero TIM2 encoder ที่ตำแหน่งปัจจุบัน */
+        Cascade_Control_Reset();        /* sync KF กับ encoder ที่เพิ่ง zero     */
+        joy_target_rad  = 0.0f;
+        joy_was_neutral = 1;
+        Septic_MoveTo(&joy_septic, 0.0f, 0.0f, JOY_POINT_MOVE_TIME);  /* hold ที่ 0 */
     }
 
     /* ── Button D: Gripper arm Up / Down toggle ───────────────────────────

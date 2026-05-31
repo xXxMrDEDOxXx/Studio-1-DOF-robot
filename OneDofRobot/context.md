@@ -1,7 +1,7 @@
 # Context — OneDofRobot (สถานะปัจจุบัน)
 
 > ไฟล์นี้สรุป **"ตอนนี้กำลังทำอะไรอยู่"** — อ่านก่อนเริ่มงานต่อทุกครั้ง
-> อัปเดตล่าสุด: 2026-05-29
+> อัปเดตล่าสุด: 2026-06-01
 
 ---
 
@@ -18,13 +18,42 @@
 |---|---|---|
 | MODE_HOMING | หา home ด้วย prox sensor | `homing.c` |
 | MODE_AUTO | Pick & Place / GoPoint / Jog | `auto_mission.c` |
-| MODE_MANUAL | Dashboard tune (velocity/position) | `dashboard.c` |
+| MODE_MANUAL | Joystick + Dashboard tune + Gripper manual | `joystick.c` / `dashboard.c` / `gripper.c` |
+| MODE_TEST | Performance / Precision | `test_mode.c` |
 
 ทุก loop รันใน **TIM6 ISR ทุก 1 ms**
 
+## ⭐ Mode Arbitration (main.c HAL_TIM_PeriodElapsedCallback) — สำคัญสุด
+ลำดับ priority ใน TIM6 ISR (อัปเดต 2026-06-01 — คืน selector-switch logic):
+1. **MODE_HOMING** → Homing_Update() (boot ทำก่อนเสมอ)
+2. **GLOBAL SOFT STOP** (0x25=1) → มอเตอร์ดับทุกโหมด (ไม่ latch)
+3. **selector = MANUAL** → บังคับ `MODE_MANUAL` → Joystick + Dashboard + Gripper → `return`
+   (base mode command ถูกทิ้ง — **joystick ทำงานเฉพาะตรงนี้**)
+4. **selector = AUTO** → อ่าน REG_BS_MODE (0x01): Home/Jog/Auto/SetHome/Test
+   (**base auto ทำงานก็ต่อเมื่อ selector = AUTO เท่านั้น**; base JOG → MODE_AUTO PP_JOG)
+> สวิตช์ = `Manual_mode_Pin` (PB0). MANUAL = PIN_RESET
+
 ---
 
-## งานที่เพิ่งทำเสร็จ (รอบล่าสุด)
+## งานที่เพิ่งทำเสร็จ (2026-06-01)
+
+### A. คืน selector-switch arbitration ✅ (main.c)
+- selector=MANUAL → MODE_MANUAL (joystick), selector=AUTO → base ควบคุม
+- แก้ปัญหา joystick ตาย (หุ่นค้าง AUTO หลัง boot) + base auto สั่งได้ตลอดเวลา
+- base JOG (0x01=2) → MODE_AUTO PP_JOG (MODE_MANUAL จริงสงวนให้สวิตช์เท่านั้น)
+
+### B. Joystick (joystick.c) ✅
+- **ปุ่ม A = EMER toggle**: กด=หยุด+latch ESTOP, กดอีก=reset+resume (ทั้งปุ่มตู้ PC13 ยัง clear ได้)
+- **Point-mode = S-curve (Septic)**: ±5°/คลิก เคลื่อนเนียน (เดิม step), `JOY_POINT_MOVE_TIME=0.5s`
+- **ปุ่ม C = Set Home ไม่ขยับ**: zero encoder + Cascade_Reset + re-arm Septic hold ที่ home ใหม่
+- joystick ทำงาน **MANUAL only** (guard `current_system_mode != MODE_MANUAL → return 0`)
+
+### C. ตรวจ base system ตรง README v1.2 ✅
+- comms (FC03/06/16 + CRC + YA/HI 230400 8E1), register map, P&P slot mapping ตรงหมด
+
+---
+
+## งานที่เพิ่งทำเสร็จ (รอบ 2026-05-29)
 
 ### 1. แก้ Steady-State Oscillation ✅
 **อาการ:** หุ่น oscillate ±2° ที่ setpoint, voltage bang-bang ±20V

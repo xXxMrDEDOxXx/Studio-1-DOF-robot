@@ -35,7 +35,8 @@ Core/Src/app/joystick.o: ../Core/Src/app/joystick.c \
  ../Drivers/STM32G4xx_HAL_Driver/Inc/stm32g4xx_hal_uart_ex.h \
  ../Core/Inc/base_system.h ../Core/Inc/cascade_control.h \
  ../Core/Inc/main.h ../Core/Inc/gripper.h ../Core/Inc/homing.h \
- ../Core/Inc/auto_mission.h ../Core/Inc/test_mode.h
+ ../Core/Inc/auto_mission.h ../Core/Inc/test_mode.h \
+ ../Core/Inc/trajectory.h ../Core/Inc/encoder.h
 ../Core/Inc/joystick.h:
 ../Core/Inc/main.h:
 ../Drivers/STM32G4xx_HAL_Driver/Inc/stm32g4xx_hal.h:
@@ -78,3 +79,5 @@ Core/Src/app/joystick.o: ../Core/Src/app/joystick.c \
 ../Core/Inc/homing.h:
 ../Core/Inc/auto_mission.h:
 ../Core/Inc/test_mode.h:
+../Core/Inc/trajectory.h:
+../Core/Inc/encoder.h:

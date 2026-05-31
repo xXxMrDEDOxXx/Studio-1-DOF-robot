@@ -1,7 +1,39 @@
 # Info — โค้ดที่เขียน / ค่าที่ตั้ง / สิ่งที่ต้องทำต่อ
 
 > รายละเอียดทางเทคนิคของการเปลี่ยนแปลงทั้งหมด
-> อัปเดตล่าสุด: 2026-05-29
+> อัปเดตล่าสุด: 2026-06-01
+
+---
+
+## 0. Mode Arbitration + Joystick (2026-06-01) ⭐ ล่าสุด
+
+### Mode arbitration (`main.c` HAL_TIM_PeriodElapsedCallback) — selector-switch based
+ลำดับ priority ใน TIM6 ISR:
+1. `MODE_HOMING` → Homing_Update() + return
+2. GLOBAL SOFT STOP (REG_BS_SOFT_STOP 0x25=1) → มอเตอร์ดับทุกโหมด + return (ไม่ latch)
+3. **selector = MANUAL** (`Manual_mode_Pin` PB0 = RESET) → บังคับ `MODE_MANUAL`:
+   - `Joystick_Update()` → ถ้าคืน 0 → `Dashboard_Update()` → `Gripper_Update()` → **return**
+   - ทิ้ง REG_BS_MODE (base mode command ไม่มีผลใน MANUAL)
+4. **selector = AUTO** → transition MANUAL→AUTO (ถ้าค้าง) → อ่าน REG_BS_MODE (0x01):
+   - HOME → AutoMission_GoHome (MODE_AUTO) | JOG → AutoMission_StartJog (MODE_AUTO PP_JOG)
+   - AUTO → pending 150ms → AutoMission_StartAuto (P&P/GoPoint) | SET_HOME → Homing_SetHome
+   - TEST → pending 150ms → TestMode (MODE_TEST)
+   - bottom switch: AUTO → AutoMission_Update, TEST → TestMode_Update
+
+> ⚠ **base auto/P&P ทำงานก็ต่อเมื่อ selector = AUTO เท่านั้น** | **joystick = MANUAL เท่านั้น**
+> เดิม (commit bc4d6c8) "base คุมเต็มตัวไม่สน selector" → ทำ joystick ตาย → revert แล้ว
+
+### Joystick (`joystick.c` / `joystick.h`)
+- ปุ่ม: A=PA5 B=PA6 C=PA7 D=PB11 K=PB10 (active-LOW pull-up) | ADC X = PC3 (ADC2_IN9, bare-metal)
+- **A = Emergency TOGGLE**: กด1=ตัด PWM+MOE disable+REG_ESTOP=1; กด2=clear+MOE enable+resume
+  (hold ตำแหน่งปัจจุบันกันดีดกลับ). ปุ่มตู้ PC13 ยัง clear ได้ (สองทางอิสระ)
+- **B = Gripper Pick/Place toggle** (REG_BS_GRIPPER_SEQ) | **C = Set Home** (zero encoder,
+  ไม่ขยับ: + Cascade_Reset + Septic hold ที่ 0) | **D = Arm Up/Down** (Gripper_SetArm ตรงๆ)
+- **K = สลับ Free ↔ Point**
+- **Free mode**: ADC <800 CCW / >3500 CW ที่ duty 15% (1500/9999, bypass cascade)
+- **Point mode**: ±5°/คลิก ด้วย **Septic S-curve** (`Septic_MoveTo`+`Septic_Update`→
+  `Cascade_Control_Update_FF`), `JOY_POINT_MOVE_TIME=0.5f`, ตั้ง pos gains (REG_POS_KP=1550)
+  ตอนเข้า Point, ต้องปล่อยกลับ neutral ก่อนคลิกถัดไป
 
 ---
 

@@ -4,6 +4,39 @@
 
 ---
 
+## [2026-06-01] คืน selector-switch arbitration — joystick(MANUAL) / base(AUTO) แยกกัน
+
+**โจทย์ผู้ใช้:** (1) joystick กลับมาใช้ไม่ได้ (2) base auto ต้องทำงาน "ก็ต่อเมื่ออยู่ AUTO"
+(3) ปุ่ม C set home แล้วหุ่นไม่ควรขยับ
+
+**สาเหตุ:** entry ก่อนหน้า "base คุมโหมดเต็มตัว (ไม่สน selector)" ทำให้หลัง boot หุ่นค้าง
+MODE_AUTO เสมอ → `Joystick_Update()` (ถูกเรียกเฉพาะ case MODE_MANUAL) ไม่เคยทำงาน
+→ joystick ตาย และ base auto สั่งได้ตลอดเวลาไม่ขึ้นกับสวิตช์
+
+**แก้ (main.c HAL_TIM_PeriodElapsedCallback) — คืน logic เดิม (ก่อน commit bc4d6c8):**
+- **Priority 2: selector = MANUAL → บังคับ MODE_MANUAL** แล้ว `return`
+  → Joystick_Update() + Dashboard_Update() + Gripper_Update() (joystick "เหมือนเดิม")
+  → base mode command (0x01) ถูกทิ้ง
+- **Priority 3: selector = AUTO → base ควบคุม** (HOME/JOG/AUTO/SET_HOME/TEST)
+  → base JOG (0x01=2) กลับไปเข้า **MODE_AUTO + PP_JOG_IDLE** (เดิม HEAD เข้า MODE_MANUAL)
+  → MODE_MANUAL จริงสงวนให้สวิตช์หน้าตู้เท่านั้น
+  → มี transition "MANUAL ค้าง → AUTO idle" ตอนโยกสวิตช์ AUTO
+- bottom switch เหลือ AUTO/TEST (MANUAL จบใน Priority 2 แล้ว)
+
+**แก้ (joystick.c ปุ่ม C — set home ต้องไม่ขยับ):** หลัง `Homing_SetHome()` (zero encoder)
+point-mode Septic ยังถือ target เก่า → หุ่นวิ่ง. เพิ่ม `Cascade_Control_Reset()` (sync KF)
++ `Septic_MoveTo(joy_septic, 0,0,...)` hold ที่ home ใหม่ + joy_target_rad=0.
+
+**ตรวจแล้ว (อ่าน Src/Inc ครบ):** auto_mission P&P sequence ถูก (MOVE_PICK→arm↓ pick→arm↑
+→MOVE_PLACE→arm↓ place→arm↑→pair ถัดไป→GO_HOME), gripper, comms (FC03/06/16+CRC),
+register map ตรง README v1.2, slot mapping ตรง Modbus log (3 คู่ = reg[0x12..0x17]).
+
+**⚠ เทสจริง:** (1) สวิตช์หน้าตู้ต้องอยู่ **AUTO** ตอนสั่ง P&P จาก base (2) base ต้องเขียน
+**0x01=4** ตอนกด START (log ที่ส่งมาเห็นแค่ slot+N_pair+gripper — ถ้าไม่มี 0x01=4 P&P ไม่เริ่ม)
+(3) selector = MANUAL ตอนจะใช้ joystick.
+
+---
+
 ## [2026-06-01] Joystick: EMER เป็น toggle + Point-mode ใช้ S-curve (Septic)
 
 **โจทย์:** (1) ปุ่ม A (emergency) ของ joystick: กด→หยุด motor, กดอีกครั้ง→reset

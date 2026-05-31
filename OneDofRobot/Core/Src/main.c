@@ -935,14 +935,58 @@ void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim)
     }
 
     /* ══════════════════════════════════════════════════════════════════════
-     *  MODE ARBITRATION — base system คุมโหมดผ่าน REG_BS_MODE (0x01) เต็มตัว
-     *  ★ ไม่สนสวิตช์หน้าตู้ (selector_mode) — base สั่งอะไรหุ่นทำตามนั้น ★
-     *    0x01 bit0 HOME      → controlled go-home
-     *    0x01 bit1 JOG/MANUAL→ เข้า MODE_MANUAL (gripper/jog/joystick)
-     *    0x01 bit2 AUTO      → Pick&Place / GoPoint
-     *    0x01 bit3 SET_HOME  → zero encoder ที่ตำแหน่งปัจจุบัน
-     *    0x01 bit4 TEST      → Performance / Precision
+     *  Priority 2: Selector switch หน้าตู้ = MANUAL → บังคับ MODE_MANUAL
+     *  ★ joystick + dashboard + gripper manual ทำงานเฉพาะตรงนี้ ★
+     *  base system mode command (0x01) ถูกทิ้งทั้งหมด → joystick ทำงาน "เหมือนเดิม"
      * ═════════════════════════════════════════════════════════════════════*/
+    if (selector_mode == SELECTOR_MANUAL) {
+        /* เพิ่งสลับเข้า MANUAL → clear auto/test state ครั้งเดียว (กัน reset รัวๆ) */
+        if (current_system_mode != MODE_MANUAL) {
+            AutoMission_Reset();
+            TestMode_Reset();
+            Cascade_Control_Reset();
+            current_system_mode = MODE_MANUAL;
+        }
+        modbus_registers[REG_BS_MODE]  = 0;          /* ทิ้ง mode command จาก base */
+        modbus_registers[REG_SYS_MODE] = MODE_MANUAL;
+
+        pending_auto_ticks = 0;
+        pending_test_ticks = 0;
+        auto_start_pending = 0;
+
+        /* Joystick ก่อน — คืน 1 = joystick กำลัง drive motor → ข้าม Dashboard
+         * (กัน joystick กับ dashboard/jog แย่งสั่งมอเตอร์)                 */
+        uint8_t joy_active = Joystick_Update();
+        if (!joy_active) {
+            Dashboard_Update();   /* base jog (0x05) + telemetry */
+        }
+        Gripper_Update();         /* manual gripper (0x02/0x03) + reed */
+
+        current_degree_out = Encoder_GetPositionDeg(&henc2);
+        return;
+    }
+
+    /* ══════════════════════════════════════════════════════════════════════
+     *  Priority 3: Selector switch = AUTO → base system ควบคุมผ่าน REG_BS_MODE
+     *  ★ base auto ทำงานได้ "ก็ต่อเมื่อ selector = AUTO" เท่านั้น ★
+     *  (joystick ไม่ทำงานฝั่งนี้ — manual ใช้สวิตช์หน้าตู้อย่างเดียว)
+     *    0x01 bit0 HOME → go-home | bit1 JOG → PP_JOG | bit2 AUTO → Pick&Place
+     *    bit3 SET_HOME → zero encoder | bit4 TEST → Performance/Precision
+     * ═════════════════════════════════════════════════════════════════════*/
+
+    /* selector เพิ่งโยก MANUAL → AUTO แต่ mode ยังค้าง MANUAL → ออกมาเป็น AUTO idle */
+    if (current_system_mode == MODE_MANUAL) {
+        Cascade_Control_Reset();
+        AutoMission_Reset();
+
+        pending_auto_ticks = 0;
+        pending_test_ticks = 0;
+        auto_start_pending = 0;
+
+        current_system_mode            = MODE_AUTO;
+        modbus_registers[REG_SYS_MODE] = MODE_AUTO;
+    }
+
     uint16_t bs_cmd = modbus_registers[REG_BS_MODE];
 
     if (bs_cmd != 0 && modbus_registers[REG_ESTOP] == 0) {
@@ -970,22 +1014,20 @@ void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim)
 
         else if (bs_cmd & REG_BS_MODE_JOG) {
 
-            /* MANUAL tab บน base system → เข้า MODE_MANUAL
-             * gripper (0x02/0x03), jog (0x05) และ joystick ทำงานในโหมดนี้
-             * guard: reset เฉพาะตอนเปลี่ยนเข้า MANUAL (กัน base ส่ง 0x01=2 ซ้ำ
-             * ทุก poll → KF reset รัวๆ → มอเตอร์สะดุด)                          */
-            if (current_system_mode != MODE_MANUAL) {
-                Cascade_Control_Reset();
-                AutoMission_Reset();
+            /* base MANUAL/Jog tab → MODE_AUTO + PP_JOG_IDLE (jog ผ่าน 0x05)
+             * NB: MODE_MANUAL จริงสงวนไว้ให้สวิตช์หน้าตู้เท่านั้น                */
+            Cascade_Control_Reset();
+            AutoMission_Reset();
 
-                pending_auto_ticks = 0;
-                pending_test_ticks = 0;
-                auto_start_pending = 0;
+            pending_auto_ticks = 0;
+            pending_test_ticks = 0;
+            auto_start_pending = 0;
 
-                modbus_registers[REG_RUN] = 0;
+            modbus_registers[REG_RUN] = 0;
 
-                current_system_mode = MODE_MANUAL;
-            }
+            AutoMission_StartJog();        /* → PP_JOG_IDLE */
+
+            current_system_mode = MODE_AUTO;
         }
 
         else if (bs_cmd & REG_BS_MODE_AUTO) {
@@ -1042,17 +1084,8 @@ void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim)
      *  Operating mode dispatch
      * ═════════════════════════════════════════════════════════════════════*/
     switch (current_system_mode) {
-        case MODE_MANUAL: {
-            /* Joystick ก่อน — คืน 1 = joystick กำลัง drive motor → ข้าม Dashboard
-             * (กัน joystick กับ dashboard/jog แย่งสั่งมอเตอร์)                 */
-            uint8_t joy_active = Joystick_Update();
-            if (!joy_active) {
-                Dashboard_Update();   /* base jog (0x05) + telemetry */
-            }
-            Gripper_Update();         /* manual gripper (0x02/0x03) + reed */
-            break;
-        }
-
+        /* MODE_MANUAL จัดการใน Priority 2 (selector=MANUAL) แล้ว return ก่อนถึงนี่
+         * → ที่นี่เหลือแค่ AUTO / TEST (selector=AUTO)                        */
         case MODE_AUTO:
             AutoMission_Update();
             break;
