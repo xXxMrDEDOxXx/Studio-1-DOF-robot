@@ -113,8 +113,8 @@ static void _dash_stop_motor(void)
     modbus_registers[REG_EST_I]  = (uint16_t)(int16_t)(hkf.est_current * 1000.0f);
     modbus_registers[REG_REF_Q]  = 0;
 
-    modbus_registers[REG_BS_POS]  = (uint16_t)(int16_t)(q_out  * (180.0f / 3.14159265f) * 10.0f);
-    modbus_registers[REG_BS_VEL]  = (uint16_t)(int16_t)(qd_out * (180.0f / 3.14159265f) * 10.0f);
+    modbus_registers[REG_BS_POS]  = (uint16_t)(int16_t)(q_out  * (180.0f / 3.14159265f) * 10.0f * BS_DIR_SIGN);
+    modbus_registers[REG_BS_VEL]  = (uint16_t)(int16_t)(qd_out * (180.0f / 3.14159265f) * 10.0f * BS_DIR_SIGN);
     modbus_registers[REG_BS_ACC]  = 0;
     modbus_registers[REG_BS_TASK] = TASK_IDLE;
 }
@@ -148,7 +148,8 @@ void Dashboard_Update(void)
             modbus_registers[REG_POS_KI]     = 120;
             modbus_registers[REG_POS_KD]     = 0;
             modbus_registers[REG_DRIVE_MODE] = 0;          /* cascade */
-            dash_jog_target = q_out + (float)jog_step * DEG2RAD;
+            /* base jog: +deg = CCW → กลับทิศให้ตรง firmware (BS_DIR_SIGN) */
+            dash_jog_target = q_out + (float)jog_step * DEG2RAD * BS_DIR_SIGN;
             Septic_MoveTo(&dash_jog_septic, q_out, dash_jog_target, TRAJ_MOVE_TIME);
             dash_jog_active = 1;
         }
@@ -166,9 +167,9 @@ void Dashboard_Update(void)
                 modbus_registers[REG_POS_KI] = 0;
                 modbus_registers[REG_POS_KD] = 0;
             }
-            /* telemetry ระหว่าง jog */
-            modbus_registers[REG_BS_POS]  = (uint16_t)(int16_t)(q_out  * (180.0f / 3.14159265f) * 10.0f);
-            modbus_registers[REG_BS_VEL]  = (uint16_t)(int16_t)(qd_out * (180.0f / 3.14159265f) * 10.0f);
+            /* telemetry ระหว่าง jog (กลับทิศ BS_DIR_SIGN) */
+            modbus_registers[REG_BS_POS]  = (uint16_t)(int16_t)(q_out  * (180.0f / 3.14159265f) * 10.0f * BS_DIR_SIGN);
+            modbus_registers[REG_BS_VEL]  = (uint16_t)(int16_t)(qd_out * (180.0f / 3.14159265f) * 10.0f * BS_DIR_SIGN);
             modbus_registers[REG_BS_ACC]  = 0;
             modbus_registers[REG_BS_TASK] = TASK_GO_POINT;
             return;
@@ -267,8 +268,8 @@ void Dashboard_Update(void)
     modbus_registers[REG_EST_I]  = (uint16_t)(int16_t)(hkf.est_current    * 1000.0f);
     modbus_registers[REG_REF_Q]  = (uint16_t)(int16_t)(dash_ref_q         * 100.0f);
 
-    modbus_registers[REG_BS_POS]  = (uint16_t)(int16_t)(q_out  * (180.0f / 3.14159265f) * 10.0f);
-    modbus_registers[REG_BS_VEL]  = (uint16_t)(int16_t)(qd_out * (180.0f / 3.14159265f) * 10.0f);
+    modbus_registers[REG_BS_POS]  = (uint16_t)(int16_t)(q_out  * (180.0f / 3.14159265f) * 10.0f * BS_DIR_SIGN);
+    modbus_registers[REG_BS_VEL]  = (uint16_t)(int16_t)(qd_out * (180.0f / 3.14159265f) * 10.0f * BS_DIR_SIGN);
     modbus_registers[REG_BS_ACC]  = 0;
     modbus_registers[REG_BS_TASK] = TASK_IDLE;
 }

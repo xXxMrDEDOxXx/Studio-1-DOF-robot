@@ -203,13 +203,15 @@ uint8_t Joystick_Update(void)
         joy_target_rad = 0.0f;   /* sync point-mode target กับ home ใหม่ */
     }
 
-    /* ── Button D: Gripper arm Up / Down toggle ───────────────────────────*/
+    /* ── Button D: Gripper arm Up / Down toggle ───────────────────────────
+     * คุม arm ตรงๆ ผ่าน Gripper_SetArm() — ไม่เขียน REG_BS_GRIPPER_MAN (0x02)
+     * → ไม่ชนกับ jaw command (OPEN/CLOSE) ที่ base ส่งมาทาง register เดียวกัน */
     if (btn_edge[BTN_D]) {
         if (arm_toggle == 0U) {
-            modbus_registers[REG_BS_GRIPPER_MAN] = GRIP_MAN_DOWN;
+            Gripper_SetArm(1);   /* down */
             arm_toggle = 1;
         } else {
-            modbus_registers[REG_BS_GRIPPER_MAN] = GRIP_MAN_UP;
+            Gripper_SetArm(0);   /* up */
             arm_toggle = 0;
         }
     }
@@ -281,8 +283,10 @@ uint8_t Joystick_Update(void)
             /* Trigger การเคลื่อนที่ใหม่ (เฉพาะครั้งแรกที่กดหลังปล่อย) */
             joy_was_neutral = 0;
 
+            /* CCW (joystick ซ้าย) = firmware ทิศลบ (encoder ลด); CW = ทิศบวก
+             * (firmware + = CW ตามที่วัดจริง) */
             float step = JOY_STEP_DEG * DEG2RAD;
-            joy_target_rad = q_out + (adc_ccw ? step : -step);
+            joy_target_rad = q_out + (adc_ccw ? -step : step);
 
             Cascade_Control_Reset();   /* clear integrators ก่อน move ใหม่ */
         }

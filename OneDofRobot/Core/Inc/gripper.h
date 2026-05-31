@@ -77,6 +77,11 @@ void    Gripper_JawClose(void);
 void    Gripper_ArmUp(void);
 void    Gripper_ArmDown(void);
 
+/* Latched manual setters — คุม arm/jaw อิสระ ไม่ผ่าน REG_BS_GRIPPER_MAN (0x02)
+ *   ใช้โดย joystick เพื่อไม่ชนกับ base gripper (arm: down=1/up=0, jaw: close=1/open=0) */
+void    Gripper_SetArm(uint8_t down);
+void    Gripper_SetJaw(uint8_t close);
+
 /* Reed read helpers (1 = triggered) */
 uint8_t Gripper_ReedUp(void);
 uint8_t Gripper_ReedDown(void);

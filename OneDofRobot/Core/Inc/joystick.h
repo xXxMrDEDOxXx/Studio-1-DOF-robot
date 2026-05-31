@@ -28,9 +28,11 @@
 
 #include <stdint.h>
 
-/* ── Motor direction (adjust if CCW/CW is reversed on your robot) ─────────── */
-#define JOY_DIR_CCW   GPIO_PIN_RESET   /* Motor_Dir_Pin level for CCW */
-#define JOY_DIR_CW    GPIO_PIN_SET     /* Motor_Dir_Pin level for CW  */
+/* ── Motor direction ─────────────────────────────────────────────────────────
+ * วัดจริง: Motor_Dir=RESET → หมุน CW. ดังนั้น CCW = SET
+ * (ถ้าหุ่นยังกลับด้าน สลับ 2 บรรทัดนี้ + เปลี่ยน BS_DIR_SIGN ใน base_system.h) */
+#define JOY_DIR_CCW   GPIO_PIN_SET     /* Motor_Dir_Pin level for CCW */
+#define JOY_DIR_CW    GPIO_PIN_RESET   /* Motor_Dir_Pin level for CW  */
 
 /* ── PWM duty for free-movement mode: 15% of ARR_MAX (9999) ─────────────── */
 #define JOY_FREE_DUTY   1500U

@@ -106,6 +106,64 @@ Flow ใหม่: `[H_LEAVE →] H_SEEK → H_COUNT → H_RETURN → H_DONE`
 
 ---
 
+## [2026-06-01] ปุ่ม D (joystick arm) ไปสั่ง jaw (rod gripper) ด้วย
+
+**อาการ:** กด joystick ปุ่ม D (gripper ขึ้น/ลง) แล้ว relay ตัวหยิบจับ rod (jaw) ทำงานด้วย
+
+**สาเหตุ:** joystick D เขียน REG_BS_GRIPPER_MAN (0x02) = DOWN(1)/UP(0) — register **เดียวกับ
+ที่ base gripper ใช้**. base MANUAL tab มีปุ่ม OPEN ค้าง (สีส้ม) → ส่ง OPEN(2) มาเรื่อยๆ
+→ register สลับค่า 1↔2 → gripper switch (single-action) ยิงคำสั่ง jaw open สลับกับ arm down
+→ jaw ทำงานตอนกด D
+
+**แก้ (gripper.c):** แยก arm/jaw เป็น **latched state อิสระ** (g_arm_down / g_jaw_close)
+- G_IDLE: parse REG_BS_GRIPPER_MAN แบบ **edge-triggered** (act เฉพาะตอนค่าเปลี่ยน) →
+  UP/DOWN แตะแค่ arm latch, OPEN/CLOSE แตะแค่ jaw latch → **decoupled**
+- apply ทั้ง arm และ jaw จาก latch ทุก tick (ถือสถานะทั้งคู่พร้อมกัน)
+- sequence (pick/place) sync latch ตอนจบ (arm up, jaw ตาม mode) → IDLE ไม่ดีดกลับ
+- เพิ่ม API `Gripper_SetArm()/Gripper_SetJaw()` คุมตรงๆ ไม่ผ่าน register
+- joystick.c: ปุ่ม D เรียก `Gripper_SetArm(1/0)` แทนการเขียน 0x02 → ไม่ชนกับ jaw ของ base
+
+---
+
+## [2026-06-01] ทิศหมุนกลับด้าน (joystick + base) → boundary negation BS_DIR_SIGN
+
+**อาการ:** joystick ซ้าย → หุ่นหมุน CW (ต้อง CCW); base auto สั่ง CCW → หุ่นหมุน CW
+(หุ่นหมุน "ตรงข้าม" กับ convention ของ base/joystick ทุกกรณี)
+
+**Ground truth:** joystick free-mode เขียน Motor_Dir=RESET (JOY_DIR_CCW เดิม) → หุ่น CW
+→ สรุป **RESET = CW, firmware "+" = CW**. แต่ base "+" (index/degree) = CCW → ต้องกลับทิศ
+
+**แก้ (boundary negation — ไม่แตะ control loop / encoder / homing เพื่อความปลอดภัย):**
+- `base_system.h`: เพิ่ม `#define BS_DIR_SIGN (-1.0f)`
+- คูณ BS_DIR_SIGN กับ **คำสั่งตำแหน่ง + telemetry ของ base** ทุกจุด:
+  - auto_mission.c: `_index_to_rad` (pick/place), GoPoint target, `_write_telemetry` (pos/vel/acc)
+  - dashboard.c: jog target, telemetry REG_BS_POS/VEL (3 จุด)
+  - test_mode.c: tm_pos_a/b, `_tm_telemetry`
+- joystick (local, ไม่ใช้ BS_DIR_SIGN แต่กลับทิศกายภาพ):
+  - `joystick.h`: JOY_DIR_CCW = SET (เดิม RESET), JOY_DIR_CW = RESET
+  - joystick.c point-mode: CCW → `q_out - step` (เดิม +step)
+
+**ถ้ายังกลับด้าน:** เปลี่ยน BS_DIR_SIGN เป็น +1.0f แล้วสลับ JOY_DIR_* กลับ (จุดเดียวครบ)
+
+---
+
+## [2026-06-01] Pick&Place ไม่เคลื่อนที่ — diagnostic (ยังไม่ฟันธงสาเหตุ)
+
+**อาการ:** กด Pick&Place START บน base → หุ่นไม่ขยับ (P2P/อื่นขยับได้)
+
+**ตรวจโค้ดแล้ว path ถูกต้อง:** 0x01=AUTO → pending 150ms → AutoMission_StartAuto →
+โหลด seq (pick0=idx0=0°, place0=idx6, ...) → Septic move → gripper → move place. ควรขยับ
+
+**ต้อง diagnose บนของจริง (ส่งข้อมูลกลับมา):**
+1. capture Modbus WRITE log **ตอนกด START** — หา `Addr:1 (0x01) Raw:4` ลงไหม
+   (ถ้าไม่มี = base ไม่ส่ง mode command → ปัญหาฝั่ง base UI)
+2. อ่าน register: 0x25 soft-stop = 0?, 0x31 emergency = 0?, 0x32 sysmode = 1 (AUTO)?
+3. SWD Live Expressions: debug_op_mode(=1 AUTO), debug_estop(=0), REG_ISR_CNT เพิ่มขึ้น?
+   debug_hom_state (ถ้าค้าง homing = boot homing ไม่จบ → ESTOP)
+- ⚠ ผู้เพิ่ม GLOBAL SOFT STOP (0x25): ถ้า base ค้าง 0x25=1 → หุ่นแข็งทุกโหมด → เช็คข้อ 2
+
+---
+
 ## [2026-06-01] Base system คุมโหมดเต็มตัว — ตัดการบังคับด้วยสวิตช์หน้าตู้
 
 **สเปก:** base system สั่งแล้วหุ่นต้องทำตาม **ไม่สนสวิตช์ selector หน้าตู้** (Manual_mode_Pin)

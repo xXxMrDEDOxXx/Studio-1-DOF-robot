@@ -23,6 +23,15 @@
  * ─────────────────────────────────────────────────────────────────────────────*/
 #define SLAVE_ID            21
 #define HEARTBEAT_REG_ADDR  0x00    /* PC ← STM32: ROBOT_SAYS_YA / PC_SAYS_HI */
+
+/* ─────────────────────────────────────────────────────────────────────────────
+ *  Direction convention
+ *  firmware "+" = ทาง CW (วัดจริงจาก joystick: Motor_Dir=RESET → CW)
+ *  base system "+" (index/degree) = ทาง CCW
+ *  → ต้องกลับทิศคำสั่ง+telemetry ของ base ด้วย BS_DIR_SIGN
+ *  ★ ถ้าหุ่นยังหมุนกลับด้าน → เปลี่ยนเป็น (+1.0f) แล้วสลับ JOY_DIR_* ใน joystick.h กลับ
+ * ─────────────────────────────────────────────────────────────────────────────*/
+#define BS_DIR_SIGN   (-1.0f)
 #define ROBOT_SAYS_YA       22881
 #define PC_SAYS_HI          18537
 #define HEARTBEAT_TIMEOUT   2000    /* ms */

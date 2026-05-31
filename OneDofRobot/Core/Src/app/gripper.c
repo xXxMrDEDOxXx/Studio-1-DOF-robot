@@ -23,6 +23,18 @@ static GripperSeqState_t g_state     = G_IDLE;
 static uint8_t           g_pick_mode = 0;     /* 1=pick(close) 0=place(open) */
 static uint32_t          g_deadline  = 0;     /* HAL_GetTick() step start    */
 
+/* ── Latched manual states — arm กับ jaw แยกอิสระจากกัน ──────────────────────
+ *  แก้ปัญหา: joystick ปุ่ม D (arm) กับ base gripper (jaw) เคยใช้ REG 0x02 ร่วมกัน
+ *  → สลับค่ากันจน jaw ทำงานตอนกด D. ตอนนี้ latch แยก + apply ทั้งคู่ทุก tick
+ *  arm: 0=up 1=down | jaw: 0=open 1=close                                      */
+static uint8_t  g_arm_down  = 0;
+static uint8_t  g_jaw_close = 0;
+static uint16_t g_man_prev  = 0xFFFF;   /* prev REG_BS_GRIPPER_MAN (edge detect) */
+
+/* ── Public setters — joystick/อื่นๆ คุม arm/jaw ตรงๆ ไม่ผ่าน REG 0x02 ── */
+void Gripper_SetArm(uint8_t down)  { g_arm_down  = down  ? 1U : 0U; }
+void Gripper_SetJaw(uint8_t close) { g_jaw_close = close ? 1U : 0U; }
+
 /* ── Low-level control (active LOW) ──────────────────────────────────────── */
 void Gripper_ArmDown(void) { HAL_GPIO_WritePin(gripper_u_d_GPIO_Port, gripper_u_d_Pin, GRIP_ARM_DOWN_LVL); }
 void Gripper_ArmUp(void)   { HAL_GPIO_WritePin(gripper_u_d_GPIO_Port, gripper_u_d_Pin, GRIP_ARM_UP_LVL);   }
@@ -52,6 +64,9 @@ void Gripper_Init(void)
     g_state     = G_IDLE;
     g_pick_mode = 0;
     g_deadline  = 0;
+    g_arm_down  = 0;        /* latch: arm up */
+    g_jaw_close = 0;        /* latch: jaw open */
+    g_man_prev  = 0xFFFF;
     Gripper_ArmUp();        /* safe: arm up, jaw open */
     Gripper_JawOpen();
     _update_reed_reg();
@@ -82,6 +97,8 @@ void Gripper_Abort(void)
 {
     Gripper_ArmUp();
     Gripper_JawOpen();
+    g_arm_down  = 0;        /* latch: arm up, jaw open (safe) */
+    g_jaw_close = 0;
     g_state = G_IDLE;
     _update_reed_reg();
 }
@@ -124,6 +141,10 @@ void Gripper_Update(void)
         case G_SEQ_UP:
             Gripper_ArmUp();
             if (Gripper_ReedUp() || (now - g_deadline >= GRIP_ARM_MS)) {
+                /* sync latch กับผลลัพธ์ sequence: arm ขึ้น, jaw ตาม pick/place
+                 * → IDLE จะ hold สถานะนี้ ไม่ดีดกลับ (เช่น pick แล้วไม่ปล่อย rod) */
+                g_arm_down  = 0;
+                g_jaw_close = g_pick_mode ? 1U : 0U;
                 g_state = G_SEQ_DONE;
             }
             break;
@@ -144,14 +165,24 @@ void Gripper_Update(void)
                 modbus_registers[REG_BS_GRIPPER_EN]  = 1;
                 Gripper_Place();
             } else {
-                /* ไม่มี sequence command → ตรวจ manual direct control (0x02) */
-                switch (modbus_registers[REG_BS_GRIPPER_MAN]) {
-                    case GRIP_MAN_DOWN:  Gripper_ArmDown();  break;
-                    case GRIP_MAN_OPEN:  Gripper_JawOpen();  break;
-                    case GRIP_MAN_CLOSE: Gripper_JawClose(); break;
-                    case GRIP_MAN_UP:
-                    default:             Gripper_ArmUp();    break;
+                /* ── base manual gripper (REG_BS_GRIPPER_MAN 0x02) — edge-triggered ──
+                 *  อัปเดต latch แยก arm/jaw (OPEN/CLOSE แตะ jaw เท่านั้น,
+                 *  UP/DOWN แตะ arm เท่านั้น) → ไม่ก้าวก่ายกัน
+                 *  edge detect: act เฉพาะตอนค่าเปลี่ยน → ไม่ทับ latch ที่ joystick ตั้ง */
+                uint16_t man = modbus_registers[REG_BS_GRIPPER_MAN];
+                if (man != g_man_prev) {
+                    g_man_prev = man;
+                    switch (man) {
+                        case GRIP_MAN_DOWN:  g_arm_down  = 1U; break;
+                        case GRIP_MAN_OPEN:  g_jaw_close = 0U; break;
+                        case GRIP_MAN_CLOSE: g_jaw_close = 1U; break;
+                        case GRIP_MAN_UP:    g_arm_down  = 0U; break;  /* 0 */
+                        default: break;
+                    }
                 }
+                /* apply ทั้ง arm และ jaw จาก latch ทุก tick (อิสระต่อกัน) */
+                if (g_arm_down)  Gripper_ArmDown();  else Gripper_ArmUp();
+                if (g_jaw_close) Gripper_JawClose(); else Gripper_JawOpen();
             }
             break;
         }

@@ -51,9 +51,9 @@ static float             tm_ref_qdd = 0.0f, tm_ref_j = 0.0f;
 /* ── Private helpers ─────────────────────────────────────────────────────── */
 static void _tm_telemetry(uint16_t task_bits)
 {
-    modbus_registers[REG_BS_POS]  = (uint16_t)(int16_t)(q_out   * RAD2DEG * 10.0f);
-    modbus_registers[REG_BS_VEL]  = (uint16_t)(int16_t)(qd_out  * RAD2DEG * 10.0f);
-    modbus_registers[REG_BS_ACC]  = (uint16_t)(int16_t)(qdd_out * RAD2DEG * 10.0f);
+    modbus_registers[REG_BS_POS]  = (uint16_t)(int16_t)(q_out   * RAD2DEG * 10.0f * BS_DIR_SIGN);
+    modbus_registers[REG_BS_VEL]  = (uint16_t)(int16_t)(qd_out  * RAD2DEG * 10.0f * BS_DIR_SIGN);
+    modbus_registers[REG_BS_ACC]  = (uint16_t)(int16_t)(qdd_out * RAD2DEG * 10.0f * BS_DIR_SIGN);
     modbus_registers[REG_BS_TASK] = task_bits;
 }
 
@@ -112,6 +112,10 @@ void TestMode_Start(void)
         tm_pos_a = (float)reg_init  * DEG2RAD;
         tm_pos_b = (float)reg_final * DEG2RAD;
     }
+
+    /* base "+" = CCW → กลับทิศให้ตรง firmware (BS_DIR_SIGN) */
+    tm_pos_a *= BS_DIR_SIGN;
+    tm_pos_b *= BS_DIR_SIGN;
 
     tm_trips     = 0;
     tm_trips_max = (uint8_t)(rep_count * 2U);

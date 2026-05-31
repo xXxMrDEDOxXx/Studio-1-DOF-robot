@@ -81,20 +81,22 @@ static float ref_j   = 0.0f;
  *  Private helpers
  * ─────────────────────────────────────────────────────────────────────────────*/
 
-/* hole index → angle [rad]  (absolute, positive always) */
+/* hole index → angle [rad]
+ * base "+" index = CCW → คูณ BS_DIR_SIGN ให้ตรงทิศ firmware (firmware + = CW) */
 static float _index_to_rad(int16_t idx)
 {
     float deg = (float)(idx < 0 ? -idx : idx) * HOLE_STEP_DEG;
-    return deg * DEG2RAD;
+    return deg * DEG2RAD * BS_DIR_SIGN;
 }
 
 /* อัปเดต REG_BS_TASK + telemetry registers ทุก tick */
 static void _write_telemetry(uint16_t task_bits)
 {
     modbus_registers[REG_BS_TASK] = task_bits;
-    modbus_registers[REG_BS_POS]  = (uint16_t)(int16_t)(q_out   * RAD2DEG * 10.0f);
-    modbus_registers[REG_BS_VEL]  = (uint16_t)(int16_t)(qd_out  * RAD2DEG * 10.0f);
-    modbus_registers[REG_BS_ACC]  = (uint16_t)(int16_t)(qdd_out * RAD2DEG * 10.0f);
+    /* telemetry กลับทิศให้ตรง convention ของ base (BS_DIR_SIGN) */
+    modbus_registers[REG_BS_POS]  = (uint16_t)(int16_t)(q_out   * RAD2DEG * 10.0f * BS_DIR_SIGN);
+    modbus_registers[REG_BS_VEL]  = (uint16_t)(int16_t)(qd_out  * RAD2DEG * 10.0f * BS_DIR_SIGN);
+    modbus_registers[REG_BS_ACC]  = (uint16_t)(int16_t)(qdd_out * RAD2DEG * 10.0f * BS_DIR_SIGN);
 }
 
 static void _set_state(uint8_t new_state)
@@ -183,7 +185,8 @@ void AutoMission_StartAuto(void)
             deg = (raw < 0) ? -mag : mag;
         }
 
-        pp_goto_target = deg * DEG2RAD;
+        /* base "+" = CCW → กลับทิศให้ตรง firmware */
+        pp_goto_target = deg * DEG2RAD * BS_DIR_SIGN;
         Septic_MoveTo(&pp_septic, q_out, pp_goto_target, TRAJ_MOVE_TIME);
         _set_state(PP_GO_POINT);
     }
