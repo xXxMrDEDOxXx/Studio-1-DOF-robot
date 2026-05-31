@@ -3,4 +3,4 @@
 ../Core/Src/app/test_mode.c:78:6:TestMode_Init	8	static
 ../Core/Src/app/test_mode.c:85:6:TestMode_Reset	8	static
 ../Core/Src/app/test_mode.c:94:6:TestMode_Start	32	static
-../Core/Src/app/test_mode.c:123:6:TestMode_Update	24	static
+../Core/Src/app/test_mode.c:127:6:TestMode_Update	24	static
