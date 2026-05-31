@@ -15,16 +15,16 @@
 
 static uint32_t last_heartbeat_time = 0;
 static bool is_connected = false;
-uint16_t modbus_registers[MODBUS_REG_COUNT] = {0};
+volatile uint16_t modbus_registers[MODBUS_REG_COUNT] = {0};
 
 /* ── FC06 echo detection ───────────────────────────────────────────────────
  * เก็บ response ล่าสุดที่ firmware ส่งออก (FC06 = echo request กลับ)
  * RX callback จะเปรียบ content + เวลา — ถ้า echo ไม่มาใน 50 ms
  * echo_valid ถูก expire อัตโนมัติใน Heartbeat_Update()
  * ─────────────────────────────────────────────────────────────────────── */
-uint8_t  modbus_echo_buf[8] = {0};   /* FC06 response ที่เพิ่งส่งออก */
-uint8_t  modbus_echo_valid  = 0;     /* 1 = รอ echo อยู่, 0 = ไม่มี  */
-uint32_t modbus_echo_time   = 0;     /* HAL_GetTick() ตอนที่ set echo_valid */
+uint8_t          modbus_echo_buf[8] = {0};   /* FC06 response ที่เพิ่งส่งออก */
+volatile uint8_t  modbus_echo_valid  = 0;    /* 1 = รอ echo อยู่, 0 = ไม่มี  */
+volatile uint32_t modbus_echo_time   = 0;    /* HAL_GetTick() ตอนที่ set echo_valid */
 
 /* ── TX buffer สำหรับ non-blocking response (DMA/IT) ──────────────────────────
  *  ต้องเป็น static (persist ระหว่าง IT transmit ที่ทำงานเบื้องหลัง)

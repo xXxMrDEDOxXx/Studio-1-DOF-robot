@@ -46,7 +46,7 @@
 
 ### การตั้งค่า usart.c
 ```c
-huart2.Init.BaudRate     = 19200;
+huart2.Init.BaudRate     = 230400;
 huart2.Init.WordLength   = UART_WORDLENGTH_9B;   // ← 9-bit เพราะใช้ Even Parity
 huart2.Init.StopBits     = UART_STOPBITS_1;
 huart2.Init.Parity       = UART_PARITY_EVEN;

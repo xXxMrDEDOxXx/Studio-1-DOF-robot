@@ -133,12 +133,25 @@ void Gripper_Update(void)
             g_state = G_IDLE;
             /* fall-through */
         case G_IDLE: {
-            switch (modbus_registers[REG_BS_GRIPPER_MAN]) {
-                case GRIP_MAN_DOWN:  Gripper_ArmDown();  break;
-                case GRIP_MAN_OPEN:  Gripper_JawOpen();  break;
-                case GRIP_MAN_CLOSE: Gripper_JawClose(); break;
-                case GRIP_MAN_UP:
-                default:             Gripper_ArmUp();    break;
+            /* ตรวจ Gripper Sequence (0x03): 1=Pick, 2=Place — BS/joystick ส่งมา */
+            uint16_t seq = modbus_registers[REG_BS_GRIPPER_SEQ];
+            if (seq == 1U) {
+                modbus_registers[REG_BS_GRIPPER_SEQ] = 0;  /* clear pulse */
+                modbus_registers[REG_BS_GRIPPER_EN]  = 1;  /* force enable */
+                Gripper_Pick();
+            } else if (seq == 2U) {
+                modbus_registers[REG_BS_GRIPPER_SEQ] = 0;
+                modbus_registers[REG_BS_GRIPPER_EN]  = 1;
+                Gripper_Place();
+            } else {
+                /* ไม่มี sequence command → ตรวจ manual direct control (0x02) */
+                switch (modbus_registers[REG_BS_GRIPPER_MAN]) {
+                    case GRIP_MAN_DOWN:  Gripper_ArmDown();  break;
+                    case GRIP_MAN_OPEN:  Gripper_JawOpen();  break;
+                    case GRIP_MAN_CLOSE: Gripper_JawClose(); break;
+                    case GRIP_MAN_UP:
+                    default:             Gripper_ArmUp();    break;
+                }
             }
             break;
         }

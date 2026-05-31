@@ -62,6 +62,7 @@
 #define REG_BS_MODE_SET_HOME  0x0008  /* bit 3: Zero encoder at current pos      */
 #define REG_BS_MODE_TEST      0x0010  /* bit 4: Test mode                        */
 #define REG_BS_GRIPPER_MAN  0x02  /* Manual gripper: 0=Up 1=Down 2=Open 4=Close*/
+#define REG_BS_GRIPPER_SEQ  0x03  /* Gripper sequence: 1=Pick  2=Place (pulse) */
 #define REG_BS_GRIPPER_EN   0x04  /* 0=gripper off  1=gripper on (in AUTO)     */
 #define REG_BS_JOG_DEG      0x05  /* Jog step  [deg, int16 signed]             */
 #define REG_BS_TEST_TYPE    0x06  /* 0=Precision  1=Performance                */
@@ -168,15 +169,15 @@ extern volatile SystemMode_t   current_system_mode; /* actual running mode   */
 /* ─────────────────────────────────────────────────────────────────────────────
  *  Modbus register array  (defined in base_system.c)
  * ─────────────────────────────────────────────────────────────────────────────*/
-extern uint16_t modbus_registers[MODBUS_REG_COUNT];
+extern volatile uint16_t modbus_registers[MODBUS_REG_COUNT];
 
 /* ─────────────────────────────────────────────────────────────────────────────
  *  FC06 Echo Detection Buffer  (defined in base_system.c)
  *  RX callback ใน main.c ใช้ทำ content-based echo filter แทน timing guard
  * ─────────────────────────────────────────────────────────────────────────────*/
-extern uint8_t  modbus_echo_buf[8];   /* สำเนา FC06 response ที่เพิ่งส่งออก */
-extern uint8_t  modbus_echo_valid;    /* 1 = กำลังรอ echo, 0 = ไม่มี         */
-extern uint32_t modbus_echo_time;     /* HAL_GetTick() ขณะ set echo_valid=1   */
+extern uint8_t          modbus_echo_buf[8];   /* สำเนา FC06 response ที่เพิ่งส่งออก */
+extern volatile uint8_t  modbus_echo_valid;   /* 1 = กำลังรอ echo, 0 = ไม่มี         */
+extern volatile uint32_t modbus_echo_time;    /* HAL_GetTick() ขณะ set echo_valid=1   */
 
 /* ─────────────────────────────────────────────────────────────────────────────
  *  API

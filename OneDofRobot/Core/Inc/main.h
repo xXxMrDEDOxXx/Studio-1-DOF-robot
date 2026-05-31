@@ -49,8 +49,6 @@ extern "C" {
 
 /* USER CODE END EM */
 
-void HAL_TIM_MspPostInit(TIM_HandleTypeDef *htim);
-
 /* Exported functions prototypes ---------------------------------------------*/
 void Error_Handler(void);
 
@@ -104,6 +102,20 @@ void Error_Handler(void);
 #define reed_close_GPIO_Port GPIOB
 
 /* USER CODE BEGIN Private defines */
+
+/* ── Joystick Shield (Funduino) ───────────────────────────────────────────── */
+#define JOY_BTN_A_Pin        GPIO_PIN_5
+#define JOY_BTN_A_GPIO_Port  GPIOA   /* PA5 */
+#define JOY_BTN_B_Pin        GPIO_PIN_6
+#define JOY_BTN_B_GPIO_Port  GPIOA   /* PA6 */
+#define JOY_BTN_C_Pin        GPIO_PIN_7
+#define JOY_BTN_C_GPIO_Port  GPIOA   /* PA7 */
+#define JOY_BTN_D_Pin        GPIO_PIN_11
+#define JOY_BTN_D_GPIO_Port  GPIOB   /* PB11 */
+#define JOY_BTN_K_Pin        GPIO_PIN_10
+#define JOY_BTN_K_GPIO_Port  GPIOB   /* PB10 */
+#define JOY_ADC_Pin          GPIO_PIN_2
+#define JOY_ADC_GPIO_Port    GPIOC   /* PC2 → ADC2_IN8 */
 
 /* USER CODE END Private defines */
 
