@@ -80,6 +80,24 @@ static void zero_encoder(void)
     henc2.position_deg = 0.0f;
 }
 
+/* ── Homing failure recovery ─────────────────────────────────────────────────
+ *  เดิม timeout → REG_ESTOP=1 → brick ทั้งระบบ (base สั่ง AUTO/TEST ไม่ได้)
+ *  ใหม่: หยุดมอเตอร์, ตั้ง home = ตำแหน่งปัจจุบัน, เข้า MODE_AUTO idle, **ไม่ ESTOP**
+ *  → หุ่นใช้งานต่อได้ทันที (base สั่งได้), ผู้ใช้ค่อย SET_HOME ที่ตำแหน่งจริงทีหลัง
+ *  ★ debug_hom_state จะค้างที่ค่าก่อน fail — ดูได้ว่า homing พังที่ step ไหน
+ * ─────────────────────────────────────────────────────────────────────────── */
+static void homing_fail_recover(void)
+{
+    raw_stop();
+    zero_encoder();                 /* home = ตำแหน่งที่ homing ยอมแพ้ */
+    Cascade_Control_Reset();        /* sync KF → 0 (กัน jump ตอนเข้า AUTO) */
+    current_system_mode            = MODE_AUTO;
+    modbus_registers[REG_SYS_MODE] = MODE_AUTO;
+    modbus_registers[REG_BS_TASK]  = TASK_IDLE;
+    /* ★ ไม่ตั้ง REG_ESTOP — homing fail ไม่ควร brick (ต่างจาก E-Stop จริง PC13) */
+    hom_state = H_IDLE;
+}
+
 /* ── Public API ──────────────────────────────────────────────────────────── */
 
 void Homing_Init(void)
@@ -139,11 +157,7 @@ void Homing_Update(void)
             }
 
             if (hom_ticks >= HOMING_LEAVE_TICKS) {
-                raw_stop();
-                modbus_registers[REG_ESTOP]    = 1;
-                current_system_mode            = MODE_MANUAL;
-                modbus_registers[REG_SYS_MODE] = MODE_MANUAL;
-                hom_state = H_IDLE;
+                homing_fail_recover();   /* ไม่ brick — เข้า AUTO idle, ไม่ ESTOP */
             }
             break;
 
@@ -178,11 +192,7 @@ void Homing_Update(void)
             }
 
             if (hom_ticks >= HOMING_SEEK_TICKS) {
-                raw_stop();
-                modbus_registers[REG_ESTOP]    = 1;
-                current_system_mode            = MODE_MANUAL;
-                modbus_registers[REG_SYS_MODE] = MODE_MANUAL;
-                hom_state = H_IDLE;
+                homing_fail_recover();   /* ไม่ brick — เข้า AUTO idle, ไม่ ESTOP */
             }
             break;
 
@@ -208,11 +218,7 @@ void Homing_Update(void)
             }
 
             if (hom_ticks >= HOMING_COUNT_TICKS) {
-                raw_stop();
-                modbus_registers[REG_ESTOP]    = 1;
-                current_system_mode            = MODE_MANUAL;
-                modbus_registers[REG_SYS_MODE] = MODE_MANUAL;
-                hom_state = H_IDLE;
+                homing_fail_recover();   /* ไม่ brick — เข้า AUTO idle, ไม่ ESTOP */
             }
             break;
 
@@ -250,11 +256,7 @@ void Homing_Update(void)
             }
 
             if (hom_ticks >= HOMING_RETURN_TICKS) {
-                raw_stop();
-                modbus_registers[REG_ESTOP]    = 1;
-                current_system_mode            = MODE_MANUAL;
-                modbus_registers[REG_SYS_MODE] = MODE_MANUAL;
-                hom_state = H_IDLE;
+                homing_fail_recover();   /* ไม่ brick — เข้า AUTO idle, ไม่ ESTOP */
             }
             break;
         }
@@ -279,11 +281,7 @@ void Homing_Update(void)
             }
 
             if (hom_ticks >= HOMING_UNWIND_TICKS) {
-                raw_stop();
-                modbus_registers[REG_ESTOP]    = 1;
-                current_system_mode            = MODE_MANUAL;
-                modbus_registers[REG_SYS_MODE] = MODE_MANUAL;
-                hom_state = H_IDLE;
+                homing_fail_recover();   /* ไม่ brick — เข้า AUTO idle, ไม่ ESTOP */
             }
             break;
         }

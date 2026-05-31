@@ -106,6 +106,34 @@ Flow ใหม่: `[H_LEAVE →] H_SEEK → H_COUNT → H_RETURN → H_DONE`
 
 ---
 
+## [2026-06-01] หุ่น brick หลัง homing fail → base สั่งไม่ขยับ (ESTOP latch)
+
+**อาการ:** กด reset → หุ่นไม่เซ็ต home → ทำอะไรต่อไม่ได้; base AUTO สั่งไม่ขยับ
+แต่ "ปรับเป็น manual แล้วสั่งได้"
+
+**สาเหตุ (chain):**
+1. boot → MODE_HOMING → homing หา sensor ไม่เจอ/มอเตอร์ไม่ถึง → **timeout**
+2. โค้ดเดิม timeout → `REG_ESTOP = 1` + MODE_MANUAL
+3. `REG_ESTOP=1` → ISR guard `if (bs_cmd && REG_ESTOP==0)` → block คำสั่ง mode **ทั้งหมด**
+   → base AUTO/TEST/HOME/JOG สั่งไม่ได้
+4. แต่ MODE_MANUAL dispatch (gripper/dashboard) **ไม่เช็ค ESTOP** → manual ยังพอทำงาน
+   → "ปรับเป็น manual แล้วสั่งได้เฉย" = อาการบ่งชี้ ESTOP latch
+5. ESTOP clear ได้แค่กดปุ่มตู้ PC13 → brick
+
+**แก้ (homing.c):** เปลี่ยน timeout handler ทั้ง 5 (H_LEAVE/SEEK/COUNT/RETURN/UNWIND)
+จาก `REG_ESTOP=1 + MODE_MANUAL` → `homing_fail_recover()`:
+- raw_stop + zero_encoder (home = ตำแหน่งที่ยอมแพ้) + Cascade_Reset
+- เข้า **MODE_AUTO idle, ไม่ตั้ง ESTOP** → base สั่งได้ทันที, ค่อย SET_HOME ทีหลัง
+- E-Stop จริง (PC13) ยังตั้ง ESTOP ตามเดิม (แยกจาก homing fail)
+
+**diagnose ต่อ (ถ้า homing ควรทำงานแต่ไม่):**
+- หลัง reset มอเตอร์ขยับช่วง homing (~10–30s) ไหม? ไม่ขยับ = PWM/MOE/มอเตอร์ตาย
+- debug_hom_state ค้างที่ step ไหน, debug_hom_signal = sensor (PA4) อ่านได้ไหม
+- ถ้า bench ไม่มี sensor → ลด HOMING_*_TICKS ให้ recover เร็วขึ้น หรือ SET_HOME เอง
+- ⚠ ถ้า base ยังสั่งไม่ขยับหลังแก้นี้ → เช็ค 0x25 (soft stop) = 0 (global STOP)
+
+---
+
 ## [2026-06-01] ปุ่ม D (joystick arm) ไปสั่ง jaw (rod gripper) ด้วย
 
 **อาการ:** กด joystick ปุ่ม D (gripper ขึ้น/ลง) แล้ว relay ตัวหยิบจับ rod (jaw) ทำงานด้วย

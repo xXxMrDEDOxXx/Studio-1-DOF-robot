@@ -1,3 +1,3 @@
-../Core/Src/app/dashboard.c:63:6:Dashboard_Init	8	static
-../Core/Src/app/dashboard.c:99:13:_dash_stop_motor	8	static
-../Core/Src/app/dashboard.c:128:6:Dashboard_Update	72	static
+../Core/Src/app/dashboard.c:58:6:Dashboard_Init	8	static
+../Core/Src/app/dashboard.c:91:13:_dash_stop_motor	8	static
+../Core/Src/app/dashboard.c:120:6:Dashboard_Update	56	static
