@@ -6,8 +6,7 @@
  */
 
 #include "joystick.h"
-#include "main.h"
-#include "tim.h"
+#include "main.h"          /* peripheral handles (htim1) ประกาศ extern ที่นี่ */
 #include "base_system.h"
 #include "cascade_control.h"
 #include "gripper.h"
@@ -23,16 +22,15 @@ extern volatile float q_out;   /* actual position [rad] — from cascade_control
 extern volatile SystemMode_t current_system_mode;
 
 /* ══════════════════════════════════════════════════════════════════════════
- *  ADC2 bare-metal helpers (PC2 = ADC2_IN8)
+ *  ADC2 bare-metal helpers (PC3 = ADC2_IN9)
  * ══════════════════════════════════════════════════════════════════════════*/
 
 static void ADC2_JoyInit(void)
 {
-    /* ADC12 clock (shared ADC1/ADC2) — may already be enabled by TempSensor */
+    /* ADC12 clock (shared ADC1/ADC2) — may already be enabled by TempSensor.
+     * ADC12_COMMON->CCR (CKMODE = HCLK/4) ถูกตั้งโดย TempSensor_Init() ก่อนแล้ว.
+     * PC3 → Analog mode ถูกตั้งโดย HAL_GPIO_Init() ใน Joystick_Init() ก่อนเรียกฟังก์ชันนี้ */
     RCC->AHB2ENR |= RCC_AHB2ENR_ADC12EN;
-
-    /* PC2 → Analog mode (GPIOC clock already enabled in gpio.c) */
-    GPIOC->MODER |= (3UL << (JOY_ADC_Pin * 2U - 2U));  /* GPIO_PIN_2 → bit 4:5 */
 
     /* Exit Deep Power-Down + enable voltage regulator */
     ADC2->CR &= ~ADC_CR_DEEPPWD;
@@ -53,15 +51,15 @@ static void ADC2_JoyInit(void)
     ADC2->CFGR  = 0;
     ADC2->CFGR2 = 0;
 
-    /* Sequence: 1 conversion, channel 8 */
-    ADC2->SQR1  = (8UL << ADC_SQR1_SQ1_Pos) | (0UL << ADC_SQR1_L_Pos);
+    /* Sequence: 1 conversion, channel 9 (PC3 = ADC2_IN9) */
+    ADC2->SQR1  = (9UL << ADC_SQR1_SQ1_Pos) | (0UL << ADC_SQR1_L_Pos);
 
-    /* Channel 8 sampling: 12.5 cycles (code 2) — bits [26:24] of SMPR1 */
-    ADC2->SMPR1 = (2UL << 24U);
+    /* Channel 9 sampling: 12.5 cycles (code 2) — SMP9 = bits [29:27] of SMPR1 */
+    ADC2->SMPR1 = (2UL << 27U);
 }
 
 /* Blocking single conversion — takes ~0.6 µs @ ADC clock 42.5 MHz */
-static uint16_t ADC2_ReadPC2(void)
+static uint16_t ADC2_ReadJoyX(void)
 {
     ADC2->ISR |= ADC_ISR_EOC;          /* clear EOC */
     ADC2->CR  |= ADC_CR_ADSTART;       /* start conversion */
@@ -168,7 +166,7 @@ uint8_t Joystick_Update(void)
     if (current_system_mode != MODE_MANUAL) return 0U;
 
     buttons_update();
-    uint16_t adc = ADC2_ReadPC2();
+    uint16_t adc = ADC2_ReadJoyX();
 
     /* ── Button A: Emergency stop ─────────────────────────────────────────
      * ตัดไฟ motor drive ทันที + set ESTOP flag
@@ -222,8 +220,18 @@ uint8_t Joystick_Update(void)
             joy_mode = JOY_MODE_POINT;
             joy_target_rad  = q_out;   /* ตั้ง target เป็นตำแหน่งปัจจุบัน */
             joy_was_neutral = 1;
+            /* เปิด position loop: ตั้ง pos gains (×100) ให้ cascade คุมตำแหน่งได้
+             * ค่าตรงกับ POS_*_AUTO ใน cascade_control.c (15.5 / 1.2 / 0)        */
+            modbus_registers[REG_POS_KP] = 1550;
+            modbus_registers[REG_POS_KI] = 120;
+            modbus_registers[REG_POS_KD] = 0;
+            modbus_registers[REG_DRIVE_MODE] = 0;   /* cascade (pos→vel→V) */
         } else {
             joy_mode = JOY_MODE_FREE;
+            /* ปิด position loop กลับเป็น velocity-only (default dashboard) */
+            modbus_registers[REG_POS_KP] = 0;
+            modbus_registers[REG_POS_KI] = 0;
+            modbus_registers[REG_POS_KD] = 0;
         }
         /* Reset cascade เมื่อสลับ mode เพื่อล้าง integrator */
         Cascade_Control_Reset();

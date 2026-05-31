@@ -5,40 +5,28 @@
 
 # Add inputs and outputs from these tool invocations to the build variables 
 C_SRCS += \
-../Core/Src/fdcan.c \
-../Core/Src/gpio.c \
 ../Core/Src/main.c \
 ../Core/Src/stm32g4xx_hal_msp.c \
 ../Core/Src/stm32g4xx_it.c \
 ../Core/Src/syscalls.c \
 ../Core/Src/sysmem.c \
-../Core/Src/system_stm32g4xx.c \
-../Core/Src/tim.c \
-../Core/Src/usart.c 
+../Core/Src/system_stm32g4xx.c
 
 OBJS += \
-./Core/Src/fdcan.o \
-./Core/Src/gpio.o \
 ./Core/Src/main.o \
 ./Core/Src/stm32g4xx_hal_msp.o \
 ./Core/Src/stm32g4xx_it.o \
 ./Core/Src/syscalls.o \
 ./Core/Src/sysmem.o \
-./Core/Src/system_stm32g4xx.o \
-./Core/Src/tim.o \
-./Core/Src/usart.o 
+./Core/Src/system_stm32g4xx.o
 
 C_DEPS += \
-./Core/Src/fdcan.d \
-./Core/Src/gpio.d \
 ./Core/Src/main.d \
 ./Core/Src/stm32g4xx_hal_msp.d \
 ./Core/Src/stm32g4xx_it.d \
 ./Core/Src/syscalls.d \
 ./Core/Src/sysmem.d \
-./Core/Src/system_stm32g4xx.d \
-./Core/Src/tim.d \
-./Core/Src/usart.d 
+./Core/Src/system_stm32g4xx.d
 
 
 # Each subdirectory must supply rules for building sources it contributes

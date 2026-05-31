@@ -5,8 +5,7 @@
  */
 
 #include "homing.h"
-#include "main.h"
-#include "tim.h"
+#include "main.h"          /* peripheral handles (htim1/htim2) ประกาศ extern ที่นี่ */
 #include "encoder.h"
 #include "base_system.h"
 #include "cascade_control.h"   /* Cascade_Control_Update_FF/Reset — H_UNWIND controlled */

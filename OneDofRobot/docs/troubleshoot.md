@@ -106,6 +106,72 @@ Flow ใหม่: `[H_LEAVE →] H_SEEK → H_COUNT → H_RETURN → H_DONE`
 
 ---
 
+## [2026-05-31] CubeMX ปิด "generate peripheral init as a pair" → โค้ดหาย/compile พัง
+
+**อาการ:** หลังกด generate (toggle "init as a pair" OFF) โค้ดหลายส่วน "หาย" → build ไม่ผ่าน
+
+**สาเหตุ:** CubeMX ย้าย MX_*_Init ทั้งหมดกลับเข้า `main.c` (static) และ **ลบไฟล์
+`gpio.c/.h`, `tim.c/.h`, `usart.c/.h`, `fdcan.c/.h` ทิ้ง**. MspInit ทุกตัวถูกรวมไว้ใน
+`stm32g4xx_hal_msp.c`. handle (huart2/htim1/2/6/hfdcan1/hadc1) นิยามใน main.c ที่เดียว.
+→ ไฟล์ที่ยัง `#include "tim.h"/"usart.h"` (homing.c, joystick.c, base_system.c,
+stm32g4xx_it.c) compile ไม่ผ่าน ("No such file"). + object เก่า (gpio.o ฯลฯ) ค้างใน Debug/
+→ ถ้า build ไม่ clean จะ duplicate symbol กับ main.o.
+
+**แก้ไข:**
+- `main.h` (USER CODE Private defines): เพิ่ม `extern` ของ hadc1/hfdcan1/htim1/2/6/huart2
+  → module อื่นเข้าถึง handle ผ่าน main.h (ทนต่อ regenerate)
+- เปลี่ยน include ใน homing.c / joystick.c (`tim.h`→`main.h`),
+  base_system.c / stm32g4xx_it.c (`usart.h`→`main.h`)
+- ลบ object เก่า gpio/tim/usart/fdcan ใน `Debug/Core/Src/`
+- อัปเดต `Debug/Core/Src/subdir.mk` (เอา gpio/tim/usart/fdcan.c ออก) และ Drivers subdir.mk
+  (เพิ่ม stm32g4xx_hal_adc.c/_ex.c — เพราะ CubeMX เปิด ADC1)
+- CubeMX gen GPIO ของปุ่ม joystick (PA5/6/7, PB10/11) เป็น INPUT NOPULL →
+  `Joystick_Init()` override เป็น PULLUP เอง (ปุ่ม active-LOW ต้องมี pull-up)
+
+**สำคัญ:** ทุกครั้งที่ CubeMX regenerate → ทำ **Project → Clean… → Build** ใน CubeIDE
+เพื่อ regenerate subdir.mk ใหม่หมด (กัน object เก่าค้าง → duplicate symbol).
+ADC1 ที่ CubeMX เปิด (channel 9) ไม่เกี่ยวกับ joystick — joystick ใช้ ADC2 (PC2) แบบ
+bare-metal ใน joystick.c. จะลบ ADC1 ใน .ioc ทิ้งก็ได้ถ้าไม่ใช้.
+
+---
+
+## [2026-05-31] เพิ่มระบบ Joystick (Funduino) + แก้ E-stop resume + heartbeat hardening
+
+**งานที่ทำ (4 ระบบ):**
+
+1. **Heartbeat hardening:** เพิ่ม `volatile` ให้ `modbus_registers[]`, `modbus_echo_valid`,
+   `modbus_echo_time` (เขียนใน ISR/RX callback อ่านใน main loop — กัน compiler cache ค่า).
+   ตรวจ config: USART2 230400, 9B+EVEN (=8E1), stop 1 → ตรงกับ base system README ✓.
+   non-blocking TX fix (Transmit_IT) ยังอยู่ครบ.
+   ⚠ ถ้ายัง error หลัง flash: liveness ของ base ขึ้นกับการ "อ่าน YA" (FC03) ไม่ใช่ FC06 echo
+   → ถ้า read reliable ก็ alive. FC06 echo ถูก skip ตอน TX busy (reg ยังเขียนลงเสมอ) —
+   ถ้า base lib ต้องการ echo confirm อาจต้องทำ TX software-queue (งานต่อ).
+
+2. **Modbus wiring ครบ:** เพิ่ม `REG_BS_GRIPPER_SEQ (0x03)` Pick=1/Place=2 → gripper.c
+   จัดการใน G_IDLE (force enable + Pick/Place). ทุก register 0x00–0x50 เชื่อมครบแล้ว.
+
+3. **Joystick (MODE_MANUAL only):** ไฟล์ใหม่ `joystick.c/.h`. อ่านปุ่ม PA5/PA6/PA7/PB11/PB10
+   (debounce 20ms, pull-up active-LOW) + ADC2_IN8 (PC2, bare-metal single-conv).
+   เรียกจาก TIM6 ISR ใน selector==MANUAL: `Joystick_Update()` คืน 1 = drive motor → skip Dashboard.
+
+4. **ปุ่ม/ADC mapping:**
+   - A (PA5) = Emergency → ตัด PWM + MOE disable + REG_ESTOP=1 (clear ที่ตู้ PC13 เท่านั้น)
+   - B (PA6) = Gripper Pick/Place toggle (REG_BS_GRIPPER_SEQ)
+   - C (PA7) = Set Home → zero TIM2 encoder (Homing_SetHome)
+   - D (PB11) = Arm Up/Down toggle (REG_BS_GRIPPER_MAN)
+   - K (PB10) = สลับ Free ↔ Point (default Free); Point เปิด pos loop (ตั้ง REG_POS_KP=1550)
+   - ADC X (PC2): Free → <800 CCW / >3500 CW ที่ 15% duty (1500/9999, bypass cascade);
+     Point → ±5° ต่อคลิก, ต้องปล่อยกลับ neutral ก่อนสั่งครั้งถัดไป
+
+**แก้ E-stop resume (main.c HAL_GPIO_EXTI_Callback):** เดิม `NVIC_SystemReset()` ตอนปล่อยปุ่มตู้ →
+เปลี่ยนเป็น clear REG_ESTOP + `__HAL_TIM_MOE_ENABLE` + `Cascade_Control_Reset()` →
+ทำงานต่อจากเดิมทันที ไม่ reset MCU (ตาม requirement).
+
+**ขาดข้อมูล / ต้องยืนยัน:** ทิศ CCW/CW ใน free mode — ใส่ `JOY_DIR_CCW/JOY_DIR_CW` ใน joystick.h
+ให้สลับเองถ้าหมุนกลับด้าน (ตอนนี้เดา CCW=RESET ตาม Motor_Drive()).
+
+---
+
 ## [2026-05-31] Heartbeat error ที่ 230400 — write หาย (blocking TX block RX)
 
 **อาการ:** ที่ baud 230400 base system อ่าน telemetry ได้ (read OK) แต่ **write ไม่ลง**

@@ -7,8 +7,7 @@
 
 
 #include "base_system.h"
-#include "main.h"    /* HAL_GetTick(), HAL_UART_Transmit() */
-#include "usart.h"
+#include "main.h"    /* HAL_GetTick(), huart2 (extern ใน main.h) */
 #include <string.h>  /* memcpy() */
 
 // ตัวแปรเก็บสถานะภายในไฟล์นี้เท่านั้น

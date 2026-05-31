@@ -22,7 +22,7 @@
 #include "stm32g4xx_it.h"
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
-#include "usart.h"
+/* peripheral handles (huart2/htim6) ประกาศ extern ใน main.h แล้ว */
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/

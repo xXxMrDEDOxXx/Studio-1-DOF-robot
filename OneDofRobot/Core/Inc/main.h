@@ -49,6 +49,8 @@ extern "C" {
 
 /* USER CODE END EM */
 
+void HAL_TIM_MspPostInit(TIM_HandleTypeDef *htim);
+
 /* Exported functions prototypes ---------------------------------------------*/
 void Error_Handler(void);
 
@@ -103,6 +105,18 @@ void Error_Handler(void);
 
 /* USER CODE BEGIN Private defines */
 
+/* ── Peripheral handles ──────────────────────────────────────────────────────
+ * CubeMX ปิด "generate peripheral init as a pair" → ลบ gpio/tim/usart/fdcan .c/.h
+ * และนิยาม handle ทั้งหมดไว้ใน main.c แทน. ประกาศ extern ที่นี่เพื่อให้ module อื่น
+ * (homing.c, joystick.c, base_system.c, stm32g4xx_it.c) เข้าถึงได้ผ่าน main.h
+ * ─────────────────────────────────────────────────────────────────────────── */
+extern ADC_HandleTypeDef   hadc1;
+extern FDCAN_HandleTypeDef hfdcan1;
+extern TIM_HandleTypeDef   htim1;
+extern TIM_HandleTypeDef   htim2;
+extern TIM_HandleTypeDef   htim6;
+extern UART_HandleTypeDef  huart2;
+
 /* ── Joystick Shield (Funduino) ───────────────────────────────────────────── */
 #define JOY_BTN_A_Pin        GPIO_PIN_5
 #define JOY_BTN_A_GPIO_Port  GPIOA   /* PA5 */
@@ -114,8 +128,8 @@ void Error_Handler(void);
 #define JOY_BTN_D_GPIO_Port  GPIOB   /* PB11 */
 #define JOY_BTN_K_Pin        GPIO_PIN_10
 #define JOY_BTN_K_GPIO_Port  GPIOB   /* PB10 */
-#define JOY_ADC_Pin          GPIO_PIN_2
-#define JOY_ADC_GPIO_Port    GPIOC   /* PC2 → ADC2_IN8 */
+#define JOY_ADC_Pin          GPIO_PIN_3
+#define JOY_ADC_GPIO_Port    GPIOC   /* PC3 → ADC2_IN9 */
 
 /* USER CODE END Private defines */
 
