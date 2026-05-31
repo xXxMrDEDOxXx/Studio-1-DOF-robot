@@ -52,7 +52,9 @@ void MX_GPIO_Init(void)
 
   /*Configure GPIO pin Output Level */
   HAL_GPIO_WritePin(Motor_Dir_GPIO_Port, Motor_Dir_Pin, GPIO_PIN_RESET);
-  HAL_GPIO_WritePin(GPIOA, GPIO_PIN_5, GPIO_PIN_RESET);  /* LD2 debug LED */
+
+  /*Configure GPIO pin Output Level */
+  HAL_GPIO_WritePin(GPIOC, gripper_u_d_Pin|gripper_o_c_Pin, GPIO_PIN_SET);
 
   /*Configure GPIO pin : E_stop_Pin */
   GPIO_InitStruct.Pin = E_stop_Pin;
@@ -60,30 +62,35 @@ void MX_GPIO_Init(void)
   GPIO_InitStruct.Pull = GPIO_PULLUP;
   HAL_GPIO_Init(E_stop_GPIO_Port, &GPIO_InitStruct);
 
-  /*Configure GPIO pin : Motor_Dir_Pin */
-  GPIO_InitStruct.Pin = Motor_Dir_Pin;
+  /*Configure GPIO pins : Motor_Dir_Pin gripper_u_d_Pin gripper_o_c_Pin */
+  GPIO_InitStruct.Pin = Motor_Dir_Pin|gripper_u_d_Pin|gripper_o_c_Pin;
   GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
   GPIO_InitStruct.Pull = GPIO_NOPULL;
   GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
-  HAL_GPIO_Init(Motor_Dir_GPIO_Port, &GPIO_InitStruct);
+  HAL_GPIO_Init(GPIOC, &GPIO_InitStruct);
 
-  /*Configure GPIO pin : PA5 (LD2 debug LED) */
-  GPIO_InitStruct.Pin = GPIO_PIN_5;
-  GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
-  GPIO_InitStruct.Pull = GPIO_NOPULL;
-  GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
-  HAL_GPIO_Init(GPIOA, &GPIO_InitStruct);
-
-  /*Configure GPIO pin : homing_signal_Pin */
-  GPIO_InitStruct.Pin = homing_signal_Pin;
+  /*Configure GPIO pins : Homing_signal_Pin reed_down_Pin */
+  GPIO_InitStruct.Pin = Homing_signal_Pin|reed_down_Pin;
   GPIO_InitStruct.Mode = GPIO_MODE_INPUT;
   GPIO_InitStruct.Pull = GPIO_NOPULL;
-  HAL_GPIO_Init(homing_signal_GPIO_Port, &GPIO_InitStruct);
+  HAL_GPIO_Init(GPIOA, &GPIO_InitStruct);
 
   /*Configure GPIO pins : Manual_mode_Pin Auto_Mode_Pin */
   GPIO_InitStruct.Pin = Manual_mode_Pin|Auto_Mode_Pin;
   GPIO_InitStruct.Mode = GPIO_MODE_INPUT;
   GPIO_InitStruct.Pull = GPIO_PULLUP;
+  HAL_GPIO_Init(GPIOB, &GPIO_InitStruct);
+
+  /*Configure GPIO pin : reed_up_Pin */
+  GPIO_InitStruct.Pin = reed_up_Pin;
+  GPIO_InitStruct.Mode = GPIO_MODE_INPUT;
+  GPIO_InitStruct.Pull = GPIO_NOPULL;
+  HAL_GPIO_Init(reed_up_GPIO_Port, &GPIO_InitStruct);
+
+  /*Configure GPIO pins : reed_open_Pin reed_close_Pin */
+  GPIO_InitStruct.Pin = reed_open_Pin|reed_close_Pin;
+  GPIO_InitStruct.Mode = GPIO_MODE_INPUT;
+  GPIO_InitStruct.Pull = GPIO_NOPULL;
   HAL_GPIO_Init(GPIOB, &GPIO_InitStruct);
 
   /* EXTI interrupt init*/

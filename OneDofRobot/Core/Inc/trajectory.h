@@ -12,16 +12,39 @@
 #include "encoder.h"
 #include <stdint.h>
 
-// ---------------- กำหนดค่าพารามิเตอร์ ----------------
-#define TRAJ_V_MAX 3.8f    // ความเร็วสูงสุดเป้าหมาย (rad/s)
-#define TRAJ_A_MAX 0.19f   // ความเร่งสูงสุด (Rad/s^2)
-#define TRAJ_J_MAX 76.0f  // ความกระชากสูงสุด (Rad/s^3)
+// ─────────────────────────────────────────────────────────────────────────────
+//  Trajectory Parameters  (θ_mission = 5° = 0.0873 rad)
+//
+//  S-Curve  (Pick→Place, smooth, carrying rod):
+//    Tj = A_MAX / J_MAX = 8.0/40 = 0.2s  (smooth เท่าเดิม)
+//    Ta = V_MAX / A_MAX - Tj = 4.0/8.0 - 0.2 = 0.3s
+//    T_total ≈ 2(Tj+Ta) + Tv → เร็วกว่าเดิม ~2.5×
+//
+//  Trapz    (Place→Pick, faster, no load):
+//    a_calc  = V_MAX / ACCEL_TIME = 4.0/0.5 = 8.0 rad/s²
+//    T_total ≈ 0.20s,            V_peak ≈ 0.85 rad/s
+//
+//  Budget: 4 rods × (0.57 + 2s + 0.21 + 2s) = 19.1s  (< 40s ✓)
+// ─────────────────────────────────────────────────────────────────────────────
+#define TRAJ_V_MAX      3.2f    /* ความเร็วสูงสุด [rad/s]  (hardware limit 4.2) */
+#define TRAJ_A_MAX      6.4f    /* ความเร่งสูงสุด [rad/s²] ใช้โดย S-Curve       */
+#define TRAJ_J_MAX      15.0f   /* ความกระชากสูงสุด [rad/s³] ใช้โดย S-Curve     */
+#define TRAJ_ACCEL_TIME 0.45f    /* เวลาเร่ง 0→V_MAX [s]    ใช้โดย Trapz เท่านั้น */
 
-// กำหนด "ระยะเวลา" ที่ใช้เร่งและเบรก (วินาที)
-#define TRAJ_ACCEL_TIME     0.613f    // เวลาที่ใช้เร่งจาก 0 ถึง V_MAX (เช่น 0.5 วินาที)
-
-// ความสมูทของ S-Curve (วินาที) - ยิ่งมากยิ่งโค้งมน (แนะนำ 0.05 - 0.15)
-#define TRAJ_S_SMOOTHNESS   10.1f
+/* ── Quintic time-scaled profile (Option B: per-move time-scaling) ───────────
+ *  q(t) = q0 + d·(10τ³−15τ⁴+6τ⁵),  τ=t/T   (minimum-jerk, ถึงเป้าเป๊ะที่ t=T)
+ *  - ทุก move ตั้งเป้าจบใน TRAJ_MOVE_TIME (ถ้าระยะสั้นพอ)
+ *  - feasibility cap: ถ้า v_peak/a_peak เกิน hardware → ยืด T อัตโนมัติ
+ *      v_peak = 1.875·d/T      a_peak = 5.7735·d/T²
+ *  - ถึง q_end พอดีที่ t=T → ไม่มี undershoot (ต่างจาก S-Curve)
+ * ─────────────────────────────────────────────────────────────────────────── */
+#define TRAJ_QV_MAX     3.5f    /* เพดานความเร็ว [rad/s] — จำกัดด้วย V_FF!
+                                 *   V_FF = K_ff·qd = 5.4·qd; ที่ 3.5 = 18.9V (เหลือ
+                                 *   headroom ~5V ให้ feedback). เดิม 4.5 → V_FF=24V
+                                 *   = saturate เต็ม → control พัง → กระตุก move ใหญ่ */
+#define TRAJ_QA_MAX     12.0f   /* เพดานความเร่ง [rad/s²] — V_acc=0.768·a; 12 = 9.2V
+                                 *   (เดิม 15 = 11.5V) กัน accel saturate รวมกับ V_FF */
+#define TRAJ_MOVE_TIME  0.5f    /* เวลาเป้าหมายต่อ move [s] (settling spec)         */
 
 
 // =================================================================
@@ -43,6 +66,8 @@ typedef struct {
 
 void Trapz_Init(Trapz_Profile_t *prof);
 void Trapz_MoveTo(Trapz_Profile_t *prof, float start_pos, float target_pos);
+void Trapz_MoveToFull(Trapz_Profile_t *prof, float start_pos, float target_pos,
+                      float v_max, float accel);
 void Trapz_Update(Trapz_Profile_t *prof, float *out_q, float *out_qd, float *out_qdd, float *out_j);
 
 
@@ -60,9 +85,58 @@ typedef struct {
     // ตัวแปรสะสมค่าแบบ Real-time
     float q_cmd, v_cmd, a_cmd;
     float prev_a_cmd; // ไว้ใช้หาค่า Jerk จากการ Diff
+
+    float j_max_eff;  /* jerk สูงสุดที่ใช้จริง — SCurve_MoveTo ตั้ง TRAJ_J_MAX */
 } SCurve_Profile_t;
 
 void SCurve_Init(SCurve_Profile_t *prof);
 void SCurve_MoveTo(SCurve_Profile_t *prof, float start_pos, float target_pos);
+void SCurve_MoveToFull(SCurve_Profile_t *prof, float start_pos, float target_pos,
+                       float v_max, float a_max, float j_max);
 void SCurve_Update(SCurve_Profile_t *prof, float *out_q, float *out_qd, float *out_qdd, float *out_j);
+
+
+// =================================================================
+// 3. Quintic Time-Scaled Profile  (Option B — per-move time-scaling)
+// =================================================================
+typedef struct {
+    float   q_start;
+    float   q_end;
+    float   d;            /* q_end − q_start (signed)        */
+    float   T;            /* duration จริงหลัง feasibility cap [s] */
+    float   current_t;
+    uint8_t is_running;
+} Quintic_Profile_t;
+
+void Quintic_Init(Quintic_Profile_t *prof);
+/* MoveTo: ตั้งเป้าจบใน T_target (จะถูกยืดถ้า v/a เกิน hardware) */
+void Quintic_MoveTo(Quintic_Profile_t *prof, float start_pos, float target_pos,
+                    float T_target);
+void Quintic_Update(Quintic_Profile_t *prof, float *out_q, float *out_qd,
+                    float *out_qdd, float *out_j);
+
+
+// =================================================================
+// 4. Septic (7th-order) Time-Scaled Profile  — jerk-continuous
+// =================================================================
+//  q(t) = q0 + d·(35τ⁴ − 84τ⁵ + 70τ⁶ − 20τ⁷),  τ = t/T
+//   - q, q̇, q̈, q⃛ = 0 ที่ปลายทั้งสองด้าน → jerk ไม่กระโดด (เนียนสุด)
+//   - เหมาะกับ carrying rod / ลดการกระตุ้น backlash
+//   - peak: v=2.1875·d/T   a=7.5117·d/T²   (สูงกว่า Quintic เล็กน้อย)
+//   - ถึง q_end พอดีที่ t=T → ไม่มี undershoot
+typedef struct {
+    float   q_start;
+    float   q_end;
+    float   d;
+    float   T;
+    float   current_t;
+    uint8_t is_running;
+} Septic_Profile_t;
+
+void Septic_Init(Septic_Profile_t *prof);
+void Septic_MoveTo(Septic_Profile_t *prof, float start_pos, float target_pos,
+                   float T_target);
+void Septic_Update(Septic_Profile_t *prof, float *out_q, float *out_qd,
+                   float *out_qdd, float *out_j);
+
 #endif /* INC_TRAJECTORY_H_ */

@@ -1,0 +1,15 @@
+../Core/Src/lib/trajectory.c:17:6:Trapz_Init	16	static
+../Core/Src/lib/trajectory.c:21:6:Trapz_MoveTo	40	static
+../Core/Src/lib/trajectory.c:55:6:Trapz_MoveToFull	48	static
+../Core/Src/lib/trajectory.c:88:6:Trapz_Update	56	static
+../Core/Src/lib/trajectory.c:133:6:SCurve_Init	16	static
+../Core/Src/lib/trajectory.c:145:13:_scurve_compute_segments	64	static
+../Core/Src/lib/trajectory.c:178:6:SCurve_MoveTo	32	static
+../Core/Src/lib/trajectory.c:196:6:SCurve_MoveToFull	40	static
+../Core/Src/lib/trajectory.c:220:6:SCurve_Update	48	static
+../Core/Src/lib/trajectory.c:315:6:Quintic_Init	16	static
+../Core/Src/lib/trajectory.c:321:6:Quintic_MoveTo	40	static
+../Core/Src/lib/trajectory.c:347:6:Quintic_Update	80	static
+../Core/Src/lib/trajectory.c:404:6:Septic_Init	16	static
+../Core/Src/lib/trajectory.c:410:6:Septic_MoveTo	40	static
+../Core/Src/lib/trajectory.c:436:6:Septic_Update	88	static

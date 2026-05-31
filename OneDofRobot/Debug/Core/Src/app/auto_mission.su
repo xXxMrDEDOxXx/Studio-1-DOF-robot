@@ -1,0 +1,10 @@
+../Core/Src/app/auto_mission.c:85:14:_index_to_rad	24	static
+../Core/Src/app/auto_mission.c:92:13:_write_telemetry	16	static
+../Core/Src/app/auto_mission.c:100:13:_set_state	16	static
+../Core/Src/app/auto_mission.c:106:13:_load_sequence	24	static
+../Core/Src/app/auto_mission.c:125:6:AutoMission_Init	8	static
+../Core/Src/app/auto_mission.c:140:6:AutoMission_Reset	8	static
+../Core/Src/app/auto_mission.c:158:6:AutoMission_StartAuto	24	static
+../Core/Src/app/auto_mission.c:195:6:AutoMission_StartJog	8	static
+../Core/Src/app/auto_mission.c:205:6:AutoMission_GoHome	8	static
+../Core/Src/app/auto_mission.c:215:6:AutoMission_Update	24	static

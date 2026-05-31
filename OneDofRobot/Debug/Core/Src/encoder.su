@@ -1,5 +1,0 @@
-../Core/Src/encoder.c:11:6:Encoder_Init	16	static
-../Core/Src/encoder.c:19:6:Encoder_Update	24	static
-../Core/Src/encoder.c:33:9:Encoder_GetPositionRaw	16	static
-../Core/Src/encoder.c:37:7:Encoder_GetPositionRad	16	static
-../Core/Src/encoder.c:41:7:Encoder_GetPositionDeg	16	static

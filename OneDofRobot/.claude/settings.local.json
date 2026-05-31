@@ -1,0 +1,23 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(python.exe -m pyocd list)",
+      "Bash(\"C:/Users/POND/AppData/Local/Python/pythoncore-3.14-64/python.exe\" -m pyocd list)",
+      "Bash(Copy-Item \"C:\\\\Users\\\\POND\\\\AppData\\\\Roaming\\\\Claude\\\\local-agent-mode-sessions\\\\26f67b2f-5463-4946-b854-c3f420b567b4\\\\cfea194c-d407-409f-a11a-3fffb36712a9\\\\rpm\\\\plugin_014WxCYbLf7f3uw2isHFR9US\\\\skills\\\\dashboard.html\" -Destination \"C:\\\\Users\\\\POND\\\\OneDrive\\\\Documents\\\\AllProject\\\\Control\\\\OneDofRobot\\\\OneDofRobot\\\\dashboard.html\")",
+      "mcp__1cdbb7f9-c012-48ed-b0ad-076175a5b303__search_threads",
+      "Skill(schedule)",
+      "Skill(schedule:*)",
+      "WebFetch(domain:scispace.com)",
+      "Bash(python -c \"import ast, sys; ast.parse\\(open\\('pid_dashboard.py'\\).read\\(\\)\\); print\\('syntax OK'\\)\")",
+      "Bash(py -c \"import ast; ast.parse\\(open\\('pid_dashboard.py'\\).read\\(\\)\\); print\\('syntax OK'\\)\")",
+      "Bash(py -c \"import ast; ast.parse\\(open\\('pid_dashboard.py', encoding='utf-8'\\).read\\(\\)\\); print\\('syntax OK'\\)\")",
+      "Bash(py -c ' *)",
+      "Bash(python -m py_compile \"C:\\\\Users\\\\POND\\\\OneDrive\\\\Documents\\\\AllProject\\\\Control\\\\OneDofRobot\\\\OneDofRobot\\\\tools\\\\pid_dashboard.py\")",
+      "Bash(py -3 -m py_compile \"C:\\\\Users\\\\POND\\\\OneDrive\\\\Documents\\\\AllProject\\\\Control\\\\OneDofRobot\\\\OneDofRobot\\\\tools\\\\pid_dashboard.py\")",
+      "WebSearch",
+      "PowerShell(Get-Process | Where-Object { $_.Modules -match \"COM3\" } 2>$null; Write-Host \"---\"; $results = @\\(\\); $procs = Get-Process; foreach \\($p in $procs\\) { try { $handles = $p.Modules | Where-Object { $_.FileName -match \"serial|com\" } ; if \\($handles\\) { $results += \"$\\($p.Name\\) \\(PID $\\($p.Id\\)\\)\" } } catch {} }; if \\($results\\) { $results } else { \"ไม่พบผ่าน Modules\" })",
+      "PowerShell(python -c \"import serial; s=serial.Serial\\('COM3'\\); print\\('opened'\\); s.close\\(\\)\" 2>&1)",
+      "PowerShell($p = Get-CimInstance Win32_Process -Filter \"ProcessId=33768\"; [PSCustomObject]@{ PID=$p.ProcessId; CmdLine=$p.CommandLine } | Format-List)"
+    ]
+  }
+}

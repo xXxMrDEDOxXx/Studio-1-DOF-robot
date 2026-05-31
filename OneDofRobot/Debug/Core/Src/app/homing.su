@@ -1,0 +1,9 @@
+../Core/Src/app/homing.c:56:13:raw_drive	16	static
+../Core/Src/app/homing.c:63:13:raw_drive_opposite	16	static
+../Core/Src/app/homing.c:70:13:raw_stop	4	static
+../Core/Src/app/homing.c:75:13:zero_encoder	4	static
+../Core/Src/app/homing.c:86:6:Homing_Init	8	static
+../Core/Src/app/homing.c:96:6:Homing_Start	8	static
+../Core/Src/app/homing.c:116:6:Homing_Update	48	static
+../Core/Src/app/homing.c:310:6:Homing_SetHome	8	static
+../Core/Src/app/homing.c:315:9:Homing_IsDone	4	static

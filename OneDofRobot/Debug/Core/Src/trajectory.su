@@ -1,6 +1,0 @@
-../Core/Src/trajectory.c:17:6:Trapz_Init	16	static
-../Core/Src/trajectory.c:21:6:Trapz_MoveTo	40	static
-../Core/Src/trajectory.c:55:6:Trapz_Update	56	static
-../Core/Src/trajectory.c:100:6:SCurve_Init	16	static
-../Core/Src/trajectory.c:111:6:SCurve_MoveTo	56	static
-../Core/Src/trajectory.c:165:6:SCurve_Update	48	static
