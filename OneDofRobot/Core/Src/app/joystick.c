@@ -172,9 +172,10 @@ uint8_t Joystick_Update(void)
     uint16_t adc = ADC2_ReadJoyX();
 
     /* ── Button A: Emergency stop / Reset (TOGGLE) ────────────────────────
-     * กดครั้งที่ 1 (ตอนยังไม่ ESTOP) → ตัดไฟ motor drive ทันที + latch ESTOP
-     * กดครั้งที่ 2 (ตอน ESTOP อยู่)  → clear ESTOP + เปิด MOE → ทำงานต่อทันที
-     * (ยัง clear ด้วยปุ่มตู้ PC13 ได้เหมือนเดิม — สองทางอิสระต่อกัน)        */
+     * กดครั้งที่ 1 (ยังไม่ ESTOP) → ตัดไฟ motor drive ทันที + latch ESTOP
+     * กดครั้งที่ 2 (ESTOP อยู่)   → clear ESTOP + เปิด MOE + กลับไปทำ HOMING ใหม่
+     *                              (sensor-based — เหมือนเปิดเครื่อง)
+     * (ปุ่มตู้ PC13 ปล่อย ก็ re-home เหมือนกัน — สองทางอิสระต่อกัน)            */
     if (btn_edge[BTN_A]) {
         if (modbus_registers[REG_ESTOP] == 0) {
             /* → Emergency STOP */
@@ -187,15 +188,18 @@ uint8_t Joystick_Update(void)
             TestMode_Reset();
             joy_prev_driving = 0;
         } else {
-            /* → RESET / resume: เปิด MOE กลับ + sync KF/integrator */
-            modbus_registers[REG_ESTOP] = 0;
+            /* → RESET: เปิด MOE + กลับไปทำ homing (sensor) ใหม่ */
+            modbus_registers[REG_ESTOP]    = 0;
             __HAL_TIM_MOE_ENABLE(&htim1);
             Cascade_Control_Reset();
-            /* hold ตำแหน่งปัจจุบัน กันหุ่นดีดกลับ target เก่าใน point mode */
-            joy_target_rad   = q_out;
-            Septic_MoveTo(&joy_septic, q_out, q_out, JOY_POINT_MOVE_TIME);
-            joy_was_neutral  = 1;
+            AutoMission_Reset();
+            TestMode_Reset();
+            Homing_Start();                       /* sensor-based homing */
+            current_system_mode            = MODE_HOMING;
+            modbus_registers[REG_SYS_MODE] = MODE_HOMING;
+            modbus_registers[REG_BS_TASK]  = TASK_HOMING;
             joy_prev_driving = 0;
+            return 0U;   /* ออกทันที → Priority 1 (HOMING) คุมตั้งแต่ tick หน้า */
         }
     }
 

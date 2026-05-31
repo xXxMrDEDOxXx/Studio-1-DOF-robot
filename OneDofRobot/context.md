@@ -43,13 +43,21 @@
 - base JOG (0x01=2) → MODE_AUTO PP_JOG (MODE_MANUAL จริงสงวนให้สวิตช์เท่านั้น)
 
 ### B. Joystick (joystick.c) ✅
-- **ปุ่ม A = EMER toggle**: กด=หยุด+latch ESTOP, กดอีก=reset+resume (ทั้งปุ่มตู้ PC13 ยัง clear ได้)
-- **Point-mode = S-curve (Septic)**: ±5°/คลิก เคลื่อนเนียน (เดิม step), `JOY_POINT_MOVE_TIME=0.5s`
+- **ปุ่ม A = EMER toggle**: กด=หยุด+latch ESTOP, **กดอีก=re-home (sensor-based)**
+- **ปุ่ม B = gripper pick/place** | **D = arm ขึ้น/ลง อย่างเดียว** (latch แยก ไม่มี grab)
+- **Point-mode = S-curve (Septic)**: ±5°/คลิก เคลื่อนเนียน, `JOY_POINT_MOVE_TIME=0.5s`
 - **ปุ่ม C = Set Home ไม่ขยับ**: zero encoder + Cascade_Reset + re-arm Septic hold ที่ home ใหม่
 - joystick ทำงาน **MANUAL only** (guard `current_system_mode != MODE_MANUAL → return 0`)
 
-### C. ตรวจ base system ตรง README v1.2 ✅
-- comms (FC03/06/16 + CRC + YA/HI 230400 8E1), register map, P&P slot mapping ตรงหมด
+### C. Emergency → re-homing ✅ (main.c EXTI + joystick.c)
+- **ปุ่มตู้ PC13 กด** → ตัดไฟ motor drive + ESTOP; **ปล่อย → Homing_Start + MODE_HOMING**
+- ปุ่ม A joystick = mirror พฤติกรรม PC13 (stop ↔ re-home)
+- ต่างจาก Set Home (ปุ่ม C) ที่แค่ zero encoder ไม่หา sensor
+
+### D. Base system 3 โหมดครบ ✅
+- **MANUAL tab**: เพิ่ม `Gripper_Update()` ใน PP_JOG → gripper 6 ปุ่ม + jog ทำงาน (auto_mission.c)
+- **TEST**: ตรวจแล้ว Performance ใช้ vel/acc จริง (Trapz_MoveToFull) + Precision (Septic) — ถูกต้องอยู่แล้ว
+- ตรวจ comms/register map/P&P slot ตรง README v1.2; index→deg ×5° (72 holes)
 
 ---
 

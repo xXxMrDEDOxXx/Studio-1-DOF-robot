@@ -4,6 +4,41 @@
 
 ---
 
+## [2026-06-01] EMER → re-homing, base MANUAL gripper, Performance test ใช้ vel/acc จริง
+
+**โจทย์ผู้ใช้ (สเปกละเอียด):**
+1. ปุ่มตู้ EMER (PC13) กด → ตัดไฟ motor drive; **ปล่อย → reset homing ใหม่**
+2. ปุ่ม A (joystick) = emer หยุดมอเตอร์; **กดอีกครั้ง → กลับไป homing (sensor-based)**
+3. ปุ่ม C = set home (zero encoder, **ไม่ขยับ**, ไม่ใช่ re-homing) — ทำแล้วรอบก่อน
+4. ปุ่ม D = arm ขึ้น/ลง **อย่างเดียว** ไม่มี grab
+5. base system ครบ 3 โหมด (AUTO / MANUAL / TEST) + STOP ต้องสั่งงานได้
+
+**แก้:**
+- **main.c EXTI (PC13 ปล่อย):** เดิม clear ESTOP + resume → เปลี่ยนเป็น clear ESTOP +
+  MOE enable + `Homing_Start()` + `MODE_HOMING` (re-home sensor-based ทุกครั้งที่ปลด emer)
+- **joystick.c ปุ่ม A กดครั้งที่ 2:** เดิม resume → เปลี่ยนเป็น re-home เหมือน PC13
+  (clear ESTOP + MOE enable + Homing_Start + MODE_HOMING + `return 0`)
+- **auto_mission.c:** เพิ่ม `Gripper_Update()` ใน `PP_JOG_IDLE` + `PP_JOG_MOVING`
+  → base MANUAL tab (0x01=2 → PP_JOG) ใช้ gripper 6 ปุ่ม (0x02 up/down/open/close +
+  0x03 pick/place) ได้จริง ระหว่าง selector = AUTO (เดิมไม่มีใครเรียก manual gripper ฝั่ง AUTO)
+- **test_mode.c Performance:** ตรวจแล้ว **ถูกต้องอยู่แล้ว** — `_tm_start_move` (tm_type==1)
+  เรียก `Trapz_MoveToFull(&tm_trapz, from, to, v, a)` โดย v/a มาจาก REG_BS_PERF_VEL/ACC
+  (×DEG2RAD, default ถ้า ≤0) → performance หมุนตาม vel/acc ที่ใส่จริง → **ไม่ต้องแก้**
+- **ปุ่ม D:** ตรวจแล้ว = arm-only อยู่แล้ว (`Gripper_SetArm` → latch g_arm_down แยกจาก
+  g_jaw_close, apply อิสระทุก tick) → ไม่ต้องแก้ (bug เก่า "D ไปสั่ง jaw" fix แล้ว)
+
+**ตรวจ base ครบ (อ่าน Src/Inc + README v1.2):**
+- AUTO: P&P (0x12–0x21 slots + 0x22 N_pair) + index→deg = ×5° (72 holes ✓ HOLE_STEP_DEG)
+  + GoPoint (0x23 unit / 0x24 target) | **P&P sequence**: หมุนไป pick→arm↓ หยิบ→arm↑
+  →หมุนไป place→arm↓ วาง→arm↑→คู่ถัดไป→home (ถูกต้องตาม spec)
+- MANUAL: gripper 6 ปุ่ม + jog (0x05 ±deg) — ทำงานเมื่อ selector=AUTO+0x01=2 (PP_JOG)
+- TEST: Performance (vel/acc) + Precision (0x09 init/0x10 final/0x11 repeat, sign=unit)
+- STOP: REG_BS_SOFT_STOP 0x25 → GLOBAL SOFT STOP (มอเตอร์ดับทุกโหมด ไม่ latch)
+- ⚠ ต้องเทสจริง: selector = AUTO ตอนสั่ง base; base ต้องเขียน **0x01=4** ตอนกด START P&P
+  (log ที่ส่งมาเห็นแค่ slot+N_pair+gripper — ถ้าไม่มี 0x01=4 → P&P ไม่เริ่ม)
+
+---
+
 ## [2026-06-01] คืน selector-switch arbitration — joystick(MANUAL) / base(AUTO) แยกกัน
 
 **โจทย์ผู้ใช้:** (1) joystick กลับมาใช้ไม่ได้ (2) base auto ต้องทำงาน "ก็ต่อเมื่ออยู่ AUTO"

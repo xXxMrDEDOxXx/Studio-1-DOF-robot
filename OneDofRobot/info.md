@@ -25,15 +25,34 @@
 
 ### Joystick (`joystick.c` / `joystick.h`)
 - ปุ่ม: A=PA5 B=PA6 C=PA7 D=PB11 K=PB10 (active-LOW pull-up) | ADC X = PC3 (ADC2_IN9, bare-metal)
-- **A = Emergency TOGGLE**: กด1=ตัด PWM+MOE disable+REG_ESTOP=1; กด2=clear+MOE enable+resume
-  (hold ตำแหน่งปัจจุบันกันดีดกลับ). ปุ่มตู้ PC13 ยัง clear ได้ (สองทางอิสระ)
-- **B = Gripper Pick/Place toggle** (REG_BS_GRIPPER_SEQ) | **C = Set Home** (zero encoder,
-  ไม่ขยับ: + Cascade_Reset + Septic hold ที่ 0) | **D = Arm Up/Down** (Gripper_SetArm ตรงๆ)
+- **A = Emergency / Reset (TOGGLE)**: กด1=ตัด PWM+MOE disable+REG_ESTOP=1;
+  **กด2=clear ESTOP+MOE enable+`Homing_Start()`+MODE_HOMING (re-home sensor-based)**
+  → กลับไป homing ใหม่เหมือนเปิดเครื่อง (ไม่ใช่ resume). ปุ่มตู้ PC13 ปล่อย → re-home เช่นกัน
+- **B = Gripper Pick/Place toggle** (REG_BS_GRIPPER_SEQ)
+- **C = Set Home** (zero encoder, **ไม่ขยับ**: Homing_SetHome + Cascade_Reset + Septic hold ที่ 0
+  — คนละอย่างกับ re-homing ตอนเปิดเครื่อง/ปล่อย emer)
+- **D = Arm Up/Down อย่างเดียว** (`Gripper_SetArm` → latch g_arm_down แยกจาก jaw, ไม่มี grab)
 - **K = สลับ Free ↔ Point**
 - **Free mode**: ADC <800 CCW / >3500 CW ที่ duty 15% (1500/9999, bypass cascade)
 - **Point mode**: ±5°/คลิก ด้วย **Septic S-curve** (`Septic_MoveTo`+`Septic_Update`→
   `Cascade_Control_Update_FF`), `JOY_POINT_MOVE_TIME=0.5f`, ตั้ง pos gains (REG_POS_KP=1550)
   ตอนเข้า Point, ต้องปล่อยกลับ neutral ก่อนคลิกถัดไป
+
+### Emergency / Homing flow (สำคัญ)
+- **boot** → MODE_HOMING → Homing_Start (sensor: H_LEAVE→SEEK→COUNT→RETURN→DONE) → MODE_AUTO
+- **ปุ่มตู้ PC13 กด** (EXTI) → ตัด PWM + MOE disable + REG_ESTOP=1 + reset auto/test
+- **ปุ่มตู้ PC13 ปล่อย** → clear ESTOP + MOE enable + **Homing_Start + MODE_HOMING (re-home)**
+- **joystick A** = mirror PC13 (toggle: stop ↔ re-home)
+- **E-Stop / re-home ต่างจาก Set Home (ปุ่ม C)**: C แค่ zero encoder ไม่ขยับ ไม่หา sensor
+
+### Base system 3 โหมด (selector = AUTO) — ตรวจตรง README v1.2
+- **AUTO**: 0x01=4 → P&P (slots 0x12–0x21, N_pair 0x22; index→deg ×5° / 72 holes) หรือ
+  GoPoint (0x23 unit, 0x24 target). gripper actuate เมื่อ 0x04=1 (เช็ค Gripper box)
+- **MANUAL**: 0x01=2 → MODE_AUTO PP_JOG → gripper 6 ปุ่ม (0x02 up/down/open/close +
+  0x03 pick/place ผ่าน `Gripper_Update()` ที่เพิ่งเพิ่มใน PP_JOG) + jog (0x05 ±deg)
+- **TEST**: 0x01=16 → Performance (0x07 vel / 0x08 acc → `Trapz_MoveToFull` ใช้ค่าจริง) /
+  Precision (0x09 init, 0x10 final, 0x11 repeat; sign=unit deg/index → Septic)
+- **STOP**: 0x25=1 → GLOBAL SOFT STOP (มอเตอร์ดับทุกโหมด ไม่ latch)
 
 ---
 

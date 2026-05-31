@@ -326,6 +326,7 @@ void AutoMission_Update(void)
         case PP_JOG_IDLE:
             _write_telemetry(TASK_IDLE);
             Cascade_Control_Update(q_out, 0.0f);
+            Gripper_Update();   /* base MANUAL tab: gripper 6 ปุ่ม (0x02/0x03) ทำงานในโหมด manual/jog */
             {
                 int16_t jog_step = (int16_t)modbus_registers[REG_BS_JOG_DEG];
                 if (jog_step != 0) {
@@ -344,6 +345,7 @@ void AutoMission_Update(void)
             Septic_Update(&pp_septic, &ref_q, &ref_qd, &ref_qdd, &ref_j);
             Cascade_Control_Update_FF(ref_q, ref_qd, ref_qdd);
             _write_telemetry(TASK_GO_POINT);
+            Gripper_Update();   /* manual gripper ระหว่าง jog (base MANUAL tab) */
             if (!pp_septic.is_running) {
                 Cascade_Flush_VelIntegral();
                 _set_state(PP_JOG_IDLE);

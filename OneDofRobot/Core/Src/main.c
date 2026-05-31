@@ -878,12 +878,20 @@ void HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin)
 		}
 		else
 		{
-			/* ปุ่มที่ตู้ถูกปล่อย → clear ESTOP และ re-enable motor drive
-			 * (ไม่ reset MCU — ระบบทำงานต่อจากเดิมทันที)              */
+			/* ── ปุ่มตู้ถูกปล่อย → clear ESTOP + เปิด MOE + กลับไปทำ HOMING ใหม่ ──
+			 * สเปก: ปลด emergency แล้วหุ่นต้อง reset homing (หา home ด้วย sensor)
+			 * ใหม่ทุกครั้ง — ไม่ resume ตำแหน่งเดิม (ตำแหน่ง encoder อาจเพี้ยน
+			 * ระหว่างที่ตัดไฟ motor drive)                                         */
 			if (modbus_registers[REG_ESTOP] == 1) {
 				modbus_registers[REG_ESTOP] = 0;
 				__HAL_TIM_MOE_ENABLE(&htim1);
-				Cascade_Control_Reset();   /* sync KF + clear integrators */
+				Cascade_Control_Reset();        /* sync KF + clear integrators */
+				AutoMission_Reset();
+				TestMode_Reset();
+				Homing_Start();                 /* sensor-based homing ใหม่ */
+				current_system_mode            = MODE_HOMING;
+				modbus_registers[REG_SYS_MODE] = MODE_HOMING;
+				modbus_registers[REG_BS_TASK]  = TASK_HOMING;
 			}
 		}
     }
