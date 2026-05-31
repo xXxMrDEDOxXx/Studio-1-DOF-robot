@@ -50,6 +50,11 @@ static float dash_t       = 0.0f;   /* internal waveform timer [s]              
 static Septic_Profile_t dash_pos_septic;        /* smooth trajectory to target    */
 static float            dash_pos_tgt_prev = 1e10f; /* last target (sentinel init) */
 
+/* ─── Base-system Jog (REG_BS_JOG_DEG 0x05) — relative move ใน MODE_MANUAL ───── */
+static Septic_Profile_t dash_jog_septic;        /* jog trajectory                 */
+static float            dash_jog_target = 0.0f; /* jog destination [rad]          */
+static uint8_t          dash_jog_active = 0;    /* 1 = jog move กำลังวิ่ง          */
+
 
 /* ─────────────────────────────────────────────────────────────────────────────
  *  Dashboard_Init
@@ -62,6 +67,9 @@ void Dashboard_Init(void)
     dash_t           = 0.0f;
     dash_pos_tgt_prev = 1e10f;    /* sentinel — ทุก target จะ trigger Septic ครั้งแรก */
     Septic_Init(&dash_pos_septic);
+    Septic_Init(&dash_jog_septic);
+    dash_jog_active = 0;
+    dash_jog_target = 0.0f;
 
     /* ตั้งค่า default: Stop ก่อน — ผู้ใช้กด Start เองจาก Dashboard */
     modbus_registers[REG_RUN]      = 0;   /* run flag  = Stop   */
@@ -122,7 +130,49 @@ void Dashboard_Update(void)
     /* ── 0. Mode guard ── */
     if (current_system_mode != MODE_MANUAL) {
         _dash_stop_motor();
+        dash_jog_active = 0;
         return;
+    }
+
+    /* ── 0.5 Base-system Jog (REG_BS_JOG_DEG 0x05) ──────────────────────────
+     *  เคลื่อนที่อิสระแบบ relative: +deg = CCW, −deg = CW
+     *  ทำงานใน MODE_MANUAL (base system MANUAL tab) — ร่วมกับ joystick ได้
+     *  ใช้ Septic + position loop (ตั้ง pos gain ชั่วคราว, เคลียร์เมื่อจบ → hold นิ่ง)
+     * ───────────────────────────────────────────────────────────────────────*/
+    {
+        int16_t jog_step = (int16_t)modbus_registers[REG_BS_JOG_DEG];
+        if (jog_step != 0) {
+            modbus_registers[REG_BS_JOG_DEG] = 0;          /* pulse → clear */
+            /* เปิด position loop ให้ถึงเป้าแม่น (ค่าตรงกับ POS_*_AUTO) */
+            modbus_registers[REG_POS_KP]     = 1550;
+            modbus_registers[REG_POS_KI]     = 120;
+            modbus_registers[REG_POS_KD]     = 0;
+            modbus_registers[REG_DRIVE_MODE] = 0;          /* cascade */
+            dash_jog_target = q_out + (float)jog_step * DEG2RAD;
+            Septic_MoveTo(&dash_jog_septic, q_out, dash_jog_target, TRAJ_MOVE_TIME);
+            dash_jog_active = 1;
+        }
+
+        if (dash_jog_active) {
+            float jq = 0.0f, jqd = 0.0f, jqdd = 0.0f, jj;
+            Septic_Update(&dash_jog_septic, &jq, &jqd, &jqdd, &jj);
+            Cascade_Control_Update_FF(jq, jqd, jqdd);
+            if (!dash_jog_septic.is_running) {
+                Cascade_Flush_VelIntegral();
+                dash_jog_active = 0;
+                /* ปิด position loop กลับเป็น velocity-only → hold นิ่งที่จุด jog
+                 * (ถ้าไม่ปิด, _dash_stop_motor จะสั่ง ref_q=0 → วิ่งกลับ home!) */
+                modbus_registers[REG_POS_KP] = 0;
+                modbus_registers[REG_POS_KI] = 0;
+                modbus_registers[REG_POS_KD] = 0;
+            }
+            /* telemetry ระหว่าง jog */
+            modbus_registers[REG_BS_POS]  = (uint16_t)(int16_t)(q_out  * (180.0f / 3.14159265f) * 10.0f);
+            modbus_registers[REG_BS_VEL]  = (uint16_t)(int16_t)(qd_out * (180.0f / 3.14159265f) * 10.0f);
+            modbus_registers[REG_BS_ACC]  = 0;
+            modbus_registers[REG_BS_TASK] = TASK_GO_POINT;
+            return;
+        }
     }
 
     /* ── 1. อ่านพารามิเตอร์จาก Modbus ── */

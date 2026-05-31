@@ -106,6 +106,31 @@ Flow ใหม่: `[H_LEAVE →] H_SEEK → H_COUNT → H_RETURN → H_DONE`
 
 ---
 
+## [2026-05-31] จูน firmware ให้ตรง base system UI จริง (return-home / STOP / manual jog)
+
+ดู base system UI จริงแล้วแก้ firmware ให้ตรงพฤติกรรม:
+
+1. **Pick&Place กลับ home หลังจบ** (auto_mission.c): เดิม PP_DWELL_PLACE จบ → PP_DONE
+   (ค้างจุดสุดท้าย). แก้: ครบทุก pair → `Septic_MoveTo(...→0)` + PP_GO_HOME → hold ที่ 0°
+   → REG_BS_TASK = Idle. (ตรงสเปก "ขยับครบ index แล้วกลับ home")
+2. **MAX_PAIRS 5 → 8** (auto_mission.c): slots 0x12–0x21 = 16 reg = 8 คู่.
+3. **Global STOP** (main.c TIM6 ISR): ปุ่ม STOP บน base = REG_BS_SOFT_STOP(0x25)=1.
+   เดิมเช็คเฉพาะ AUTO/TEST. เพิ่ม global check หลัง MODE_HOMING: 0x25=1 → reset auto/test +
+   PWM compare=0 (มอเตอร์ดับทุกโหมด incl. MANUAL/joystick) + REG_RUN=0. ไม่ latch
+   (ต่างจาก E-Stop) → base เคลียร์ 0x25=0 แล้วสั่งใหม่ได้.
+4. **Base Jog ใน MANUAL** (dashboard.c): เดิม jog (0x05) ทำงานเฉพาะ selector=AUTO
+   (ผ่าน AutoMission). เพิ่มใน Dashboard_Update (MODE_MANUAL): 0x05≠0 → relative Septic move
+   (+deg CCW / −deg CW) เปิด pos loop ชั่วคราว (REG_POS_KP=1550) ถึงเป้าแล้ว**เคลียร์ pos gain=0**
+   (กัน _dash_stop_motor สั่ง ref_q=0 → วิ่งกลับ home). ทำงานร่วม joystick ได้ (joystick
+   active → skip dashboard).
+
+**ยืนยันแล้ว (ไม่ต้องแก้):**
+- **P2P เป็น absolute จาก home** ทั้ง index (×5°) และ degree → firmware GoPoint ทำถูกอยู่แล้ว
+- Mode เลือกจาก web (0x01) → Priority 3 (selector=AUTO) อ่าน 0x01 ครบ (Home/Jog/Auto/SetHome/Test)
+- Joystick ใช้ได้เฉพาะ MODE_MANUAL (selector switch = MANUAL) ตามสเปกเดิม
+
+---
+
 ## [2026-05-31] CubeMX ปิด "generate peripheral init as a pair" → โค้ดหาย/compile พัง
 
 **อาการ:** หลังกด generate (toggle "init as a pair" OFF) โค้ดหลายส่วน "หาย" → build ไม่ผ่าน

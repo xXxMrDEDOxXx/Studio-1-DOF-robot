@@ -919,6 +919,22 @@ void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim)
     }
 
     /* ══════════════════════════════════════════════════════════════════════
+     *  GLOBAL SOFT STOP (ปุ่ม STOP บน base system → REG_BS_SOFT_STOP 0x25 = 1)
+     *  หยุดทุกอย่างทันทีในทุกโหมด (MANUAL/AUTO/TEST + joystick) — มอเตอร์ดับ
+     *  ต่างจาก E-Stop: ไม่ตัด MOE, ไม่ latch ESTOP → base เคลียร์ 0x25=0 แล้วสั่งใหม่ได้
+     * ═════════════════════════════════════════════════════════════════════*/
+    if (modbus_registers[REG_BS_SOFT_STOP] & 0x0001) {
+        AutoMission_Reset();      /* clear P&P state machine                 */
+        TestMode_Reset();         /* clear test state machine                */
+        modbus_registers[REG_RUN]     = 0;          /* หยุด dashboard loop    */
+        modbus_registers[REG_BS_MODE] = 0;          /* ทิ้ง mode command ค้าง */
+        modbus_registers[REG_BS_TASK] = TASK_IDLE;
+        __HAL_TIM_SET_COMPARE(&htim1, TIM_CHANNEL_1, 0);   /* มอเตอร์ดับ (override hold) */
+        Gripper_Update();         /* reed telemetry ยัง update ได้           */
+        return;
+    }
+
+    /* ══════════════════════════════════════════════════════════════════════
      *  Priority 2: Selector switch หน้าตู้ — MANUAL บังคับ MODE_MANUAL
      * ═════════════════════════════════════════════════════════════════════*/
     if (selector_mode == SELECTOR_MANUAL) {

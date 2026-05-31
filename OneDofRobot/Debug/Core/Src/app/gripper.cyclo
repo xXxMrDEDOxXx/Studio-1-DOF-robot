@@ -12,4 +12,4 @@
 ../Core/Src/app/gripper.c:68:6:Gripper_Place	2
 ../Core/Src/app/gripper.c:76:9:Gripper_IsDone	3
 ../Core/Src/app/gripper.c:81:6:Gripper_Abort	1
-../Core/Src/app/gripper.c:93:6:Gripper_Update	21
+../Core/Src/app/gripper.c:93:6:Gripper_Update	19

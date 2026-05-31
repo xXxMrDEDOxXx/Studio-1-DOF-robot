@@ -66,7 +66,7 @@ static uint8_t   pp_pair_count  = 0;
 /* pp_dwell_start เลิกใช้ — dwell ใช้ Gripper_IsDone() (reed) แทน timer */
 
 /* ─── Decoded sequence (radians) ─────────────────────────────────────────── */
-#define MAX_PAIRS  5
+#define MAX_PAIRS  8     /* slots 0x12–0x21 = 16 reg = 8 คู่ (pick+place)        */
 static float pp_pick_rad [MAX_PAIRS];
 static float pp_place_rad[MAX_PAIRS];
 static float pp_goto_target = 0.0f;  /* GoPoint / Jog destination [rad] */
@@ -298,8 +298,12 @@ void AutoMission_Update(void)
                                    pp_pick_rad[pp_pair_idx], TRAJ_MOVE_TIME);
                     _set_state(PP_MOVE_PICK);
                 } else {
-                    /* ครบทุก pair */
-                    _set_state(PP_DONE);
+                    /* ครบทุก pair → กลับ home (position 0) ตามสเปก base system */
+                    pp_goto_target = 0.0f;
+                    Septic_MoveTo(&pp_septic,
+                                   pp_place_rad[pp_pair_idx - 1],
+                                   0.0f, TRAJ_MOVE_TIME);
+                    _set_state(PP_GO_HOME);
                 }
             }
             break;
