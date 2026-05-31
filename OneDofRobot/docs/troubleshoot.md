@@ -106,6 +106,39 @@ Flow ใหม่: `[H_LEAVE →] H_SEEK → H_COUNT → H_RETURN → H_DONE`
 
 ---
 
+## [2026-06-01] Base system คุมโหมดเต็มตัว — ตัดการบังคับด้วยสวิตช์หน้าตู้
+
+**สเปก:** base system สั่งแล้วหุ่นต้องทำตาม **ไม่สนสวิตช์ selector หน้าตู้** (Manual_mode_Pin)
+
+**เดิม (ผิด):** TIM6 ISR มี Priority 2 = ถ้า selector switch = MANUAL → บังคับ MODE_MANUAL
+และอ่าน 0x01 (mode จาก base) เฉพาะตอน selector = AUTO → base สั่ง AUTO/TEST ไม่ได้ถ้า
+สวิตช์อยู่ MANUAL, และเข้า MANUAL จาก web ไม่ได้
+
+**แก้ (main.c HAL_TIM_PeriodElapsedCallback):** เขียน mode arbitration ใหม่
+- ตัดเงื่อนไข `selector_mode` ออกจาก logic (เหลือไว้แค่ debug)
+- อ่าน REG_BS_MODE (0x01) **เสมอ** (ไม่ gate ด้วยสวิตช์):
+  - bit0 HOME → AutoMission_GoHome (MODE_AUTO)
+  - bit1 JOG → **MODE_MANUAL** (เดิมเข้า auto-jog) — gripper/jog/joystick ทำงานในนี้
+  - bit2 AUTO → Pick&Place / GoPoint (pending 150ms)
+  - bit3 SET_HOME → Homing_SetHome (ไม่เปลี่ยนโหมด)
+  - bit4 TEST → Performance/Precision (pending 150ms)
+- dispatch: MODE_MANUAL → Joystick_Update() → (ถ้าไม่ active) Dashboard_Update() → Gripper_Update()
+- **guard re-send:** JOG/TEST reset เฉพาะตอน "เปลี่ยนเข้า" โหมดนั้น (กัน base เขียน 0x01 ซ้ำ
+  ทุก poll → Cascade_Control_Reset รัวๆ → มอเตอร์สะดุด); AUTO ใช้ auto_start_pending เดิม
+
+**⚠ สมมุติฐานที่ต้องเทสบนของจริง:** base MANUAL tab ต้องเขียน **0x01 = 2 (JOG/Manual)**
+เพื่อให้ firmware เข้า MODE_MANUAL ก่อน gripper (0x02/0x03) จะทำงาน. ทดสอบ: กด tab MANUAL
+แล้วกด OPEN — ถ้า gripper ไม่ขยับแปลว่า base ไม่ได้ส่ง 0x01=2 → ต้องเพิ่ม auto-enter MANUAL
+เมื่อมี manual command เข้ามา.
+
+**Recheck Modbus I/O (รับ-ส่งค่าจริง):**
+- RX: FC03 read block 0x00–0x31 (50 reg) → ตอบเมื่อ TX ว่าง (base retry ได้)
+- RX: FC06/FC16 write → เขียน register **เสมอ** (แม้ TX busy) → command ลงแน่
+- TX telemetry: 0x28/0x29/0x30 = ×10, 0x26 reed, 0x27 task, 0x31 estop, 0x32 sysmode ✓
+- screenshot จริง: "Connected" + "Heartbeat: Normal" → comms layer ทำงานแล้ว
+
+---
+
 ## [2026-05-31] จูน firmware ให้ตรง base system UI จริง (return-home / STOP / manual jog)
 
 ดู base system UI จริงแล้วแก้ firmware ให้ตรงพฤติกรรม:

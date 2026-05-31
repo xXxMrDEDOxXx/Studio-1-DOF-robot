@@ -935,60 +935,14 @@ void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim)
     }
 
     /* ══════════════════════════════════════════════════════════════════════
-     *  Priority 2: Selector switch หน้าตู้ — MANUAL บังคับ MODE_MANUAL
+     *  MODE ARBITRATION — base system คุมโหมดผ่าน REG_BS_MODE (0x01) เต็มตัว
+     *  ★ ไม่สนสวิตช์หน้าตู้ (selector_mode) — base สั่งอะไรหุ่นทำตามนั้น ★
+     *    0x01 bit0 HOME      → controlled go-home
+     *    0x01 bit1 JOG/MANUAL→ เข้า MODE_MANUAL (gripper/jog/joystick)
+     *    0x01 bit2 AUTO      → Pick&Place / GoPoint
+     *    0x01 bit3 SET_HOME  → zero encoder ที่ตำแหน่งปัจจุบัน
+     *    0x01 bit4 TEST      → Performance / Precision
      * ═════════════════════════════════════════════════════════════════════*/
-    if (selector_mode == SELECTOR_MANUAL) {
-        current_system_mode            = MODE_MANUAL;
-        modbus_registers[REG_BS_MODE]  = 0;
-        modbus_registers[REG_SYS_MODE] = MODE_MANUAL;
-
-        /* clear pending ทุกอย่าง */
-        pending_auto_ticks = 0;
-        pending_test_ticks = 0;
-        auto_start_pending = 0;
-
-        /* Joystick ก่อน — คืน 1 = joystick กำลัง drive motor → ข้าม Dashboard
-         * ป้องกัน Dashboard กับ joystick แย่งสั่งมอเตอร์พร้อมกัน              */
-        uint8_t joy_active = Joystick_Update();
-        if (!joy_active) {
-            Dashboard_Update();
-        }
-        Gripper_Update();      /* manual gripper (REG_BS_GRIPPER_MAN/SEQ) + reed */
-        return;
-    }
-
-    /* ══════════════════════════════════════════════════════════════════════
-     *  Priority 3: selector = AUTO → base system ควบคุม
-     * ═════════════════════════════════════════════════════════════════════*/
-
-    /* selector โยกมา AUTO แต่ mode ค้างอยู่ MANUAL */
-    if (current_system_mode == MODE_MANUAL) {
-        Cascade_Control_Reset();
-        AutoMission_Reset();
-
-        pending_auto_ticks = 0;
-        pending_test_ticks = 0;
-        auto_start_pending = 0;
-
-        current_system_mode            = MODE_AUTO;
-        modbus_registers[REG_SYS_MODE] = MODE_AUTO;
-    }
-
-    /* ── Pending start countdown ── */
-    if (pending_auto_ticks > 0) {
-        if (--pending_auto_ticks == 0) {
-            auto_start_pending = 0;
-            AutoMission_StartAuto();
-        }
-    }
-
-    if (pending_test_ticks > 0) {
-        if (--pending_test_ticks == 0) {
-            TestMode_Start();
-        }
-    }
-
-    /* ── Read Base System command ── */
     uint16_t bs_cmd = modbus_registers[REG_BS_MODE];
 
     if (bs_cmd != 0 && modbus_registers[REG_ESTOP] == 0) {
@@ -999,8 +953,7 @@ void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim)
         if (bs_cmd & REG_BS_MODE_HOME) {
 
             /* BS "Go Home" = controlled move กลับ position 0 (ใช้ cascade control)
-             * ต่างจาก force homing ตอน boot (raw-seek หา flag) — ไม่ re-home flag
-             * encoder zero ถูกตั้งจาก force homing ตอนเริ่มแล้ว                    */
+             * ต่างจาก force homing ตอน boot (raw-seek หา flag) — ไม่ re-home flag */
             AutoMission_Reset();
 
             pending_auto_ticks = 0;
@@ -1012,23 +965,27 @@ void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim)
             AutoMission_GoHome();          /* Septic move → 0 (controlled) */
 
             current_system_mode            = MODE_AUTO;
-            modbus_registers[REG_SYS_MODE] = MODE_AUTO;
             modbus_registers[REG_BS_TASK]  = TASK_HOMING;
         }
 
         else if (bs_cmd & REG_BS_MODE_JOG) {
 
-            Cascade_Control_Reset();
-            AutoMission_Reset();
+            /* MANUAL tab บน base system → เข้า MODE_MANUAL
+             * gripper (0x02/0x03), jog (0x05) และ joystick ทำงานในโหมดนี้
+             * guard: reset เฉพาะตอนเปลี่ยนเข้า MANUAL (กัน base ส่ง 0x01=2 ซ้ำ
+             * ทุก poll → KF reset รัวๆ → มอเตอร์สะดุด)                          */
+            if (current_system_mode != MODE_MANUAL) {
+                Cascade_Control_Reset();
+                AutoMission_Reset();
 
-            pending_auto_ticks = 0;
-            pending_test_ticks = 0;
-            auto_start_pending = 0;
+                pending_auto_ticks = 0;
+                pending_test_ticks = 0;
+                auto_start_pending = 0;
 
-            AutoMission_StartJog();
+                modbus_registers[REG_RUN] = 0;
 
-            current_system_mode            = MODE_AUTO;
-            modbus_registers[REG_SYS_MODE] = MODE_AUTO;
+                current_system_mode = MODE_MANUAL;
+            }
         }
 
         else if (bs_cmd & REG_BS_MODE_AUTO) {
@@ -1043,34 +1000,58 @@ void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim)
                 auto_start_pending = 1;
             }
 
-            current_system_mode            = MODE_AUTO;
-            modbus_registers[REG_SYS_MODE] = MODE_AUTO;
+            current_system_mode = MODE_AUTO;
         }
 
         else if (bs_cmd & REG_BS_MODE_SET_HOME) {
+            /* zero encoder ที่ตำแหน่งปัจจุบัน — ไม่เปลี่ยนโหมด */
             Homing_SetHome();
         }
 
         else if (bs_cmd & REG_BS_MODE_TEST) {
 
-            Cascade_Control_Reset();
-            AutoMission_Reset();
+            /* guard: เริ่ม test ใหม่เฉพาะตอนเปลี่ยนเข้า TEST (กัน re-send รีสตาร์ทรัวๆ) */
+            if (current_system_mode != MODE_TEST) {
+                Cascade_Control_Reset();
+                AutoMission_Reset();
 
-            pending_auto_ticks = 0;
-            pending_test_ticks = 150;
-            auto_start_pending = 0;
+                pending_auto_ticks = 0;
+                pending_test_ticks = 150;
+                auto_start_pending = 0;
 
-            current_system_mode            = MODE_TEST;
-            modbus_registers[REG_SYS_MODE] = MODE_TEST;
+                current_system_mode = MODE_TEST;
+            }
         }
     }
 
-    /* ── Operating mode dispatch ── */
+    /* ── Pending start countdown (รอ ~150ms ให้ params ลงครบก่อน start) ── */
+    if (pending_auto_ticks > 0) {
+        if (--pending_auto_ticks == 0) {
+            auto_start_pending = 0;
+            AutoMission_StartAuto();
+        }
+    }
+
+    if (pending_test_ticks > 0) {
+        if (--pending_test_ticks == 0) {
+            TestMode_Start();
+        }
+    }
+
+    /* ══════════════════════════════════════════════════════════════════════
+     *  Operating mode dispatch
+     * ═════════════════════════════════════════════════════════════════════*/
     switch (current_system_mode) {
-        case MODE_MANUAL:
-            Dashboard_Update();
-            Gripper_Update();   /* manual gripper + reed telemetry */
+        case MODE_MANUAL: {
+            /* Joystick ก่อน — คืน 1 = joystick กำลัง drive motor → ข้าม Dashboard
+             * (กัน joystick กับ dashboard/jog แย่งสั่งมอเตอร์)                 */
+            uint8_t joy_active = Joystick_Update();
+            if (!joy_active) {
+                Dashboard_Update();   /* base jog (0x05) + telemetry */
+            }
+            Gripper_Update();         /* manual gripper (0x02/0x03) + reed */
             break;
+        }
 
         case MODE_AUTO:
             AutoMission_Update();
@@ -1084,7 +1065,7 @@ void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim)
             break;
     }
 
-    /* ── Report current mode ── */
+    /* ── Report current mode (0x32) ── */
     modbus_registers[REG_SYS_MODE] = (uint16_t)current_system_mode;
 
     current_degree_out = Encoder_GetPositionDeg(&henc2);
