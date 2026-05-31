@@ -1,5 +1,5 @@
-../Core/Src/comm/base_system.c:37:6:Heartbeat_Init	1
-../Core/Src/comm/base_system.c:45:6:Heartbeat_Update	5
-../Core/Src/comm/base_system.c:75:6:Heartbeat_IsConnected	1
-../Core/Src/comm/base_system.c:81:17:Modbus_CRC16	4
-../Core/Src/comm/base_system.c:98:6:Modbus_Parse_Frame	16
+../Core/Src/comm/base_system.c:38:6:Heartbeat_Init	1
+../Core/Src/comm/base_system.c:46:6:Heartbeat_Update	5
+../Core/Src/comm/base_system.c:76:6:Heartbeat_IsConnected	1
+../Core/Src/comm/base_system.c:82:17:Modbus_CRC16	4
+../Core/Src/comm/base_system.c:99:6:Modbus_Parse_Frame	16
