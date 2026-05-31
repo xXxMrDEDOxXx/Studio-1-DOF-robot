@@ -10,7 +10,7 @@ C_SRCS += \
 ../Core/Src/app/gripper.c \
 ../Core/Src/app/homing.c \
 ../Core/Src/app/joystick.c \
-../Core/Src/app/test_mode.c
+../Core/Src/app/test_mode.c 
 
 OBJS += \
 ./Core/Src/app/auto_mission.o \
@@ -18,7 +18,7 @@ OBJS += \
 ./Core/Src/app/gripper.o \
 ./Core/Src/app/homing.o \
 ./Core/Src/app/joystick.o \
-./Core/Src/app/test_mode.o
+./Core/Src/app/test_mode.o 
 
 C_DEPS += \
 ./Core/Src/app/auto_mission.d \
@@ -26,7 +26,7 @@ C_DEPS += \
 ./Core/Src/app/gripper.d \
 ./Core/Src/app/homing.d \
 ./Core/Src/app/joystick.d \
-./Core/Src/app/test_mode.d
+./Core/Src/app/test_mode.d 
 
 
 # Each subdirectory must supply rules for building sources it contributes
