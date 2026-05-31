@@ -3,4 +3,4 @@
 ../Core/Src/app/joystick.c:86:13:buttons_update	11
 ../Core/Src/app/joystick.c:126:6:Joystick_Init	1
 ../Core/Src/app/joystick.c:158:11:Joystick_GetMode	1
-../Core/Src/app/joystick.c:164:9:Joystick_Update	22
+../Core/Src/app/joystick.c:164:9:Joystick_Update	29

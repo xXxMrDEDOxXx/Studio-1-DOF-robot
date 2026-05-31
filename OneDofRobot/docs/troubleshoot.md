@@ -4,6 +4,37 @@
 
 ---
 
+## [2026-06-01] Joystick: EMER เป็น toggle + Point-mode ใช้ S-curve (Septic)
+
+**โจทย์:** (1) ปุ่ม A (emergency) ของ joystick: กด→หยุด motor, กดอีกครั้ง→reset
+(2) point-mode ให้เคลื่อนแบบ S-curve เนียน (3) ยืนยัน joystick ทำงานเฉพาะ MODE_MANUAL
+
+**แก้ (joystick.c / joystick.h):**
+- **ปุ่ม A = TOGGLE** (เดิม latch อย่างเดียว clear ได้แค่ปุ่มตู้ PC13):
+  - กดครั้งที่ 1 (ยังไม่ ESTOP) → compare=0 + MOE disable + REG_ESTOP=1 + reset auto/test
+  - กดครั้งที่ 2 (ESTOP อยู่) → REG_ESTOP=0 + MOE enable + Cascade_Reset + hold ตำแหน่ง
+    ปัจจุบัน (Septic_MoveTo q_out→q_out กันดีดกลับ target เก่า) → ทำงานต่อทันที
+  - ปุ่มตู้ PC13 ยัง clear ได้เหมือนเดิม (สองทางอิสระ)
+  - ⚠ toggle reset ทำงานเฉพาะตอนยังอยู่ MODE_MANUAL (joystick ถูกเรียกเฉพาะโหมดนี้)
+    ถ้า ESTOP ถูกตั้งตอน AUTO → ต้องใช้ PC13 clear
+- **Point-mode → S-curve:** เดิม `Cascade_Control_Update(target,0)` (step กระชาก) →
+  เปลี่ยนเป็น `Septic_MoveTo()` ตอนคลิก + `Septic_Update()`→`Cascade_Control_Update_FF()`
+  ทุก tick (pattern เดียวกับ auto_mission). เพิ่ม `JOY_POINT_MOVE_TIME=0.5f` (ปรับได้).
+  จบ move → Septic hold q_end เอง.
+- **Manual-only ยืนยัน:** `Joystick_Update()` คง guard `!= MODE_MANUAL → return 0`,
+  main.c เรียกเฉพาะ `case MODE_MANUAL`. (revert ความพยายาม auto-enter MANUAL ก่อนหน้า)
+
+**Base system cross-check กับ README v1.2 (Modbus map) — ตรง spec:**
+- comms (base_system.c): FC03 read block จาก 0x00, FC06/FC16 write, CRC16, YA=22881/
+  HI=18537, 8E1/230400 ✓ | register map (base_system.h) ตรงทุก addr (0x01 mode one-hot,
+  0x02 gripper 0/1/2/4, 0x05 jog ±deg, 0x25 soft-stop, 0x26–0x31 read, 0x28–0x30 ×10) ✓
+- mode arbitration (main.c) อ่าน REG_BS_MODE เสมอ ไม่ gate ด้วย selector ✓
+- ⚠ README prose §3.8 ว่า P&P "10 slots (0x12–0x21)" แต่จริง 0x12–0x21 = 16 reg;
+  firmware ใช้ 16 (8 คู่) — addr ตรงกัน (anchor 0x12 + 0x22 pair_count) ใช้งานได้
+- ที่เหลือต้องเทสบนของจริง (ดู entry [2026-06-01] Pick&Place diagnostic + boot homing)
+
+---
+
 ## [2026-05-26] UART สรุปการเปลี่ยนแปลง — กลับมาใช้ USART2
 
 **สรุป:** USART3 (PB10/PB11) ใช้ไม่ได้เพราะ ST-Link USB เชื่อมกับ USART2 (PA2/PA3) เท่านั้น

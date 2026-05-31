@@ -13,4 +13,4 @@
 ../Core/Src/main.c:777:13:MX_GPIO_Init	1
 ../Core/Src/main.c:847:6:HAL_GPIO_EXTI_Callback	6
 ../Core/Src/main.c:895:6:HAL_TIM_PeriodElapsedCallback	23
-../Core/Src/main.c:1082:6:Error_Handler	1
+../Core/Src/main.c:1087:6:Error_Handler	1

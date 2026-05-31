@@ -4,7 +4,8 @@
  *  Funduino Joystick Shield — Manual Mode Interface
  * ─────────────────────────────────────────────────────────────────────────────
  *  Buttons (active LOW, pull-up):
- *    A → PA5  : Emergency stop  (latches ESTOP; clear by pressing cabinet btn)
+ *    A → PA5  : Emergency stop / Reset (TOGGLE: 1st press = E-stop, 2nd = reset;
+ *               cabinet PC13 button also clears)
  *    B → PA6  : Gripper Pick/Place toggle
  *    C → PA7  : Set Home (zero encoder at current position)
  *    D → PB11 : Gripper arm Up/Down toggle
@@ -12,8 +13,8 @@
  *
  *  ADC X-axis → PC2 (ADC2_IN8), 0–4095:
  *    Free  mode: < 800 → CCW at 15% duty | > 3500 → CW at 15% duty
- *    Point mode: < 800 → +5° (CCW) step  | > 3500 → −5° (CW) step
- *                (re-trigger only after returning to neutral)
+ *    Point mode: < 800 → +5° (CCW) move  | > 3500 → −5° (CW) move
+ *                (S-curve / Septic, jerk-continuous; re-trigger after neutral)
  *
  *  ⚠ Only active when current_system_mode == MODE_MANUAL
  *
@@ -43,6 +44,11 @@
 
 /* ── Step size for point-to-point mode ───────────────────────────────────── */
 #define JOY_STEP_DEG  5.0f    /* degrees per joystick click */
+
+/* ── S-curve (Septic) move time per click [s] ────────────────────────────────
+ * เวลาเคลื่อนที่ต่อคลิก 5° (จะถูกยืดอัตโนมัติถ้า v/a เกิน hardware cap)
+ * เล็กลง = jog ไว/กระชากขึ้น | ใหญ่ขึ้น = เนียน/ช้าลง */
+#define JOY_POINT_MOVE_TIME  0.5f
 
 /* ── Debounce time [ms] ──────────────────────────────────────────────────── */
 #define JOY_DEBOUNCE_MS  20U

@@ -13,6 +13,7 @@
 #include "homing.h"
 #include "auto_mission.h"
 #include "test_mode.h"
+#include "trajectory.h"   /* Septic (S-curve) trajectory สำหรับ point-mode move */
 #include <math.h>
 
 #define DEG2RAD  (3.14159265f / 180.0f)
@@ -118,6 +119,7 @@ static uint8_t   grip_toggle    = 0;      /* 0=next btn_B does Pick, 1=Place   *
 static uint8_t   arm_toggle     = 0;      /* 0=next btn_D goes Down, 1=Up      */
 static uint8_t   joy_was_neutral = 1;     /* point mode: joystick was at neutral */
 static uint8_t   joy_prev_driving = 0;   /* free mode: was directly driving motor */
+static Septic_Profile_t joy_septic;       /* point mode: S-curve move profile      */
 
 /* ══════════════════════════════════════════════════════════════════════════
  *  Public API
@@ -153,6 +155,7 @@ void Joystick_Init(void)
     arm_toggle       = 0;
     joy_was_neutral  = 1;
     joy_prev_driving = 0;
+    Septic_Init(&joy_septic);
 }
 
 JoyMode_t Joystick_GetMode(void) { return joy_mode; }
@@ -168,21 +171,35 @@ uint8_t Joystick_Update(void)
     buttons_update();
     uint16_t adc = ADC2_ReadJoyX();
 
-    /* ── Button A: Emergency stop ─────────────────────────────────────────
-     * ตัดไฟ motor drive ทันที + set ESTOP flag
-     * Clear ได้โดยกดปุ่มที่ตู้ (PC13 release handler) เท่านั้น             */
+    /* ── Button A: Emergency stop / Reset (TOGGLE) ────────────────────────
+     * กดครั้งที่ 1 (ตอนยังไม่ ESTOP) → ตัดไฟ motor drive ทันที + latch ESTOP
+     * กดครั้งที่ 2 (ตอน ESTOP อยู่)  → clear ESTOP + เปิด MOE → ทำงานต่อทันที
+     * (ยัง clear ด้วยปุ่มตู้ PC13 ได้เหมือนเดิม — สองทางอิสระต่อกัน)        */
     if (btn_edge[BTN_A]) {
-        __HAL_TIM_SET_COMPARE(&htim1, TIM_CHANNEL_1, 0);
-        __HAL_TIM_MOE_DISABLE_UNCONDITIONALLY(&htim1);
-        modbus_registers[REG_ESTOP] = 1;
-        modbus_registers[REG_RUN]   = 0;
-        Cascade_Control_Reset();
-        AutoMission_Reset();
-        TestMode_Reset();
-        joy_prev_driving = 0;
+        if (modbus_registers[REG_ESTOP] == 0) {
+            /* → Emergency STOP */
+            __HAL_TIM_SET_COMPARE(&htim1, TIM_CHANNEL_1, 0);
+            __HAL_TIM_MOE_DISABLE_UNCONDITIONALLY(&htim1);
+            modbus_registers[REG_ESTOP] = 1;
+            modbus_registers[REG_RUN]   = 0;
+            Cascade_Control_Reset();
+            AutoMission_Reset();
+            TestMode_Reset();
+            joy_prev_driving = 0;
+        } else {
+            /* → RESET / resume: เปิด MOE กลับ + sync KF/integrator */
+            modbus_registers[REG_ESTOP] = 0;
+            __HAL_TIM_MOE_ENABLE(&htim1);
+            Cascade_Control_Reset();
+            /* hold ตำแหน่งปัจจุบัน กันหุ่นดีดกลับ target เก่าใน point mode */
+            joy_target_rad   = q_out;
+            Septic_MoveTo(&joy_septic, q_out, q_out, JOY_POINT_MOVE_TIME);
+            joy_was_neutral  = 1;
+            joy_prev_driving = 0;
+        }
     }
 
-    /* หยุดทำงานทั้งหมดถ้า ESTOP active */
+    /* หยุดทำงานทั้งหมดถ้า ESTOP active (รอกด A ซ้ำ หรือปุ่มตู้ PC13 เพื่อ clear) */
     if (modbus_registers[REG_ESTOP]) return 0U;
 
     /* ── Button B: Gripper Pick / Place toggle ────────────────────────────*/
@@ -222,6 +239,9 @@ uint8_t Joystick_Update(void)
             joy_mode = JOY_MODE_POINT;
             joy_target_rad  = q_out;   /* ตั้ง target เป็นตำแหน่งปัจจุบัน */
             joy_was_neutral = 1;
+            /* hold ที่ตำแหน่งปัจจุบัน: dist=0 → is_running=0, q_end=q_out
+             * → Septic_Update จะคืน q_out ค้างไว้จนกว่าจะมีคลิกใหม่           */
+            Septic_MoveTo(&joy_septic, q_out, q_out, JOY_POINT_MOVE_TIME);
             /* เปิด position loop: ตั้ง pos gains (×100) ให้ cascade คุมตำแหน่งได้
              * ค่าตรงกับ POS_*_AUTO ใน cascade_control.c (15.5 / 1.2 / 0)        */
             modbus_registers[REG_POS_KP] = 1550;
@@ -272,7 +292,7 @@ uint8_t Joystick_Update(void)
         }
 
     } else {
-        /* ── Point-to-Point Mode: ±5° per click ─────────────────────────── */
+        /* ── Point-to-Point Mode: ±5° ต่อคลิก (S-curve / Septic เนียน) ───── */
 
         if (!adc_active) {
             /* Joystick กลับมา neutral → อนุญาตให้ trigger ครั้งถัดไปได้ */
@@ -288,12 +308,18 @@ uint8_t Joystick_Update(void)
             float step = JOY_STEP_DEG * DEG2RAD;
             joy_target_rad = q_out + (adc_ccw ? -step : step);
 
-            Cascade_Control_Reset();   /* clear integrators ก่อน move ใหม่ */
+            /* สร้าง S-curve trajectory จากตำแหน่งจริง → target (jerk-continuous)
+             * เนียน ไม่กระชาก, ไม่กระตุก backlash เหมือน step เดิม                */
+            Septic_MoveTo(&joy_septic, q_out, joy_target_rad, JOY_POINT_MOVE_TIME);
         }
 
-        /* Cascade position control ไปยัง target */
+        /* รัน trajectory ทุก tick → ป้อน cascade แบบ feedforward (q, qd, qdd)
+         * จบ move แล้ว Septic_Update คืน q_end ค้าง (is_running=0) → hold ตำแหน่ง */
+        float ref_q, ref_qd, ref_qdd, ref_j;
+        Septic_Update(&joy_septic, &ref_q, &ref_qd, &ref_qdd, &ref_j);
+
         modbus_registers[REG_RUN] = 0;   /* ป้องกัน Dashboard override */
-        Cascade_Control_Update(joy_target_rad, 0.0f);
+        Cascade_Control_Update_FF(ref_q, ref_qd, ref_qdd);
         return 1U;
     }
 }
