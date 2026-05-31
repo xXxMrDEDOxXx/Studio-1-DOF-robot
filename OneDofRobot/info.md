@@ -45,6 +45,16 @@
 - **joystick A** = mirror PC13 (toggle: stop ↔ re-home)
 - **E-Stop / re-home ต่างจาก Set Home (ปุ่ม C)**: C แค่ zero encoder ไม่ขยับ ไม่หา sensor
 
+### Base telemetry ใน MANUAL (main.c Priority 2) — แก้ base UI แขนไม่ขยับตาม joystick
+- **ปัญหา:** MODE_MANUAL dispatch `return` ก่อนเขียน base block; joystick free-mode bypass
+  cascade → Dashboard ถูก skip + cascade ไม่ถูกเรียก → 0x28/0x29/0x30 ค้าง → แขนใน base UI นิ่ง
+- **แก้:** เขียน base telemetry ทุก tick **หลัง Gripper_Update** ใน Priority 2:
+  - `Encoder_Update(&henc2)` — idempotent (ถ้า cascade เรียกไปแล้ว diff=0 ไม่นับซ้ำ)
+  - **pos** = `henc2.position_deg ×10 ×BS_DIR_SIGN` (scale เดียวกับ q_out)
+  - **vel/acc** = finite-diff (dt=1ms) + EMA (vel α=0.1, acc α=0.05) → static bs_prev_deg/
+    bs_vel_ema/bs_prev_vel/bs_acc_ema ใน block. กระตุก→ลด α / lag→เพิ่ม α
+  - ไม่แตะ control path / joystick.c (เขียน register อย่างเดียว)
+
 ### Base system 3 โหมด (selector = AUTO) — ตรวจตรง README v1.2
 - **AUTO**: 0x01=4 → P&P (slots 0x12–0x21, N_pair 0x22; index→deg ×5° / 72 holes) หรือ
   GoPoint (0x23 unit, 0x24 target). gripper actuate เมื่อ 0x04=1 (เช็ค Gripper box)
@@ -66,7 +76,7 @@
 | `PWM_ARR_MAX` | 9999.0f | `cascade_control.h` |
 | `MAX_VOLTAGE` | 24.0V | `cascade_control.h` |
 | `GEAR_RATIO` | 2.0 | `cascade_control.h` |
-| Modbus | USART2 19200 8E1, slave=21 | — |
+| Modbus | USART2 230400 8E1, slave=21 | — |
 
 ---
 

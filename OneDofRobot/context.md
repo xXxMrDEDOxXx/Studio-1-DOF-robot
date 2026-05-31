@@ -10,7 +10,7 @@
 หุ่นยนต์ **1-DOF (แขนหมุน 1 แกน)** ควบคุมด้วย STM32G474RE
 - ควบคุมแบบ **Cascade**: position loop (นอก) → velocity loop (ใน) → motor voltage
 - มี **Kalman Filter** ประมาณ position / velocity / disturbance
-- สื่อสารกับ PC ผ่าน **Modbus RTU** (USART2, 19200 8E1, slave ID=21)
+- สื่อสารกับ PC ผ่าน **Modbus RTU** (USART2, 230400 8E1, slave ID=21)
 - ควบคุมได้ 2 ทาง: **Base System** (PC app จริง) และ **pid_dashboard.py** (เครื่องมือ tune)
 
 ## โหมดการทำงาน (current_system_mode)
@@ -58,6 +58,12 @@
 - **MANUAL tab**: เพิ่ม `Gripper_Update()` ใน PP_JOG → gripper 6 ปุ่ม + jog ทำงาน (auto_mission.c)
 - **TEST**: ตรวจแล้ว Performance ใช้ vel/acc จริง (Trapz_MoveToFull) + Precision (Septic) — ถูกต้องอยู่แล้ว
 - ตรวจ comms/register map/P&P slot ตรง README v1.2; index→deg ×5° (72 holes)
+
+### E. Telemetry ใน MANUAL ✅ (main.c Priority 2) — แก้ base UI แขนไม่ขยับตาม joystick
+- **ปัญหา:** MANUAL dispatch return ก่อนเขียน telemetry + joystick free-mode bypass cascade
+  → 0x28/0x29/0x30 ค้าง → รูปแขนใน base UI ไม่ขยับ
+- **แก้:** เขียน base telemetry ทุก tick หลัง Gripper_Update — `Encoder_Update(henc2)` (idempotent)
+  + pos จาก henc2.position_deg, vel/acc = finite-diff(dt=1ms)+EMA (α 0.1/0.05). ไม่แตะ control path
 
 ---
 

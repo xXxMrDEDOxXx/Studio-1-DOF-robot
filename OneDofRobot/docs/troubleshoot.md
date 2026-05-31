@@ -4,6 +4,33 @@
 
 ---
 
+## [2026-06-01] MANUAL/joystick: base UI แขนไม่ขยับ — telemetry (0x28/0x29/0x30) ไม่อัปเดต
+
+**อาการ:** คุม joystick แบบ manual → position/speed/acc ไม่ update; โดยเฉพาะรูปแขนหุ่นใน
+base system ไม่ขยับตาม
+
+**Root cause:**
+- **MODE_MANUAL dispatch ใน main.c return ก่อนถึง telemetry** — Priority 2 (selector=MANUAL)
+  เรียก Joystick→Dashboard→Gripper แล้ว `return` ทันที ไม่มีจุดเขียน base block กลาง
+- Dashboard_Update **เขียน 0x28/0x29 อยู่แล้ว** แต่เฉพาะ path ที่ run (jog/pos/vel mode);
+  **joystick free-mode bypass cascade** (direct PWM + return 1) → Dashboard ถูก skip
+  + cascade ไม่ถูกเรียก → ไม่มีใครเขียน telemetry → base UI freeze ตอนใช้ joystick
+
+**แก้ (main.c Priority 2 — เขียน telemetry รวมศูนย์ที่เดียว ทุก tick หลัง Gripper_Update):**
+- `Encoder_Update(&henc2)` ก่อน (idempotent — ถ้า cascade เรียกไปแล้ว diff=0 ไม่ซ้ำซ้อน)
+  → henc2.position_deg สดทุก tick ทั้ง point/free/neutral
+- **pos** = `henc2.position_deg ×10 ×BS_DIR_SIGN` (encoder ตรงๆ — scale เดียวกับ q_out
+  เพราะ q_out=KF(position_rad), position_deg=position_rad×180/π)
+- **vel/acc** = finite-diff (dt=1ms) + EMA (vel α=0.1, acc α=0.05) กัน quantization noise
+  → static `bs_prev_deg/bs_vel_ema/bs_prev_vel/bs_acc_ema` ใน block
+- ไม่แตะ control path / joystick.c (เขียน register อย่างเดียว) → ปลอดภัย
+
+**หมายเหตุ:** gripper(0x26)/mode(0x32)/emergency(0x31) อัปเดตอยู่แล้วใน MANUAL (Gripper_Update +
+main.c) → status อื่นใน base UI ครบ เหลือแค่ pos/vel/acc ที่เพิ่งแก้นี้
+⚠ ถ้า vel/acc ใน UI กระตุก → ลด α (0.1→0.05); ถ้า lag → เพิ่ม α
+
+---
+
 ## [2026-06-01] EMER → re-homing, base MANUAL gripper, Performance test ใช้ vel/acc จริง
 
 **โจทย์ผู้ใช้ (สเปกละเอียด):**

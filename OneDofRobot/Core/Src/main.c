@@ -970,7 +970,31 @@ void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim)
         }
         Gripper_Update();         /* manual gripper (0x02/0x03) + reed */
 
-        current_degree_out = Encoder_GetPositionDeg(&henc2);
+        /* ── เขียน base telemetry (0x28/0x29/0x30) ทุก tick ใน MANUAL ──────────
+         * เดิม telemetry เขียนเฉพาะใน auto/test/dashboard → joystick (free/point)
+         * base UI ไม่เห็น pos/vel/acc → แขนหุ่นในจอไม่ขยับตาม. แก้: คำนวณจาก
+         * encoder (henc2) ตรงๆ ทุก tick → สดทั้ง point + free mode (bypass cascade)
+         * Encoder_Update เรียกซ้ำได้ (idempotent ใน tick เดียว: diff=0)
+         * vel/acc = finite-diff (dt=1ms) + EMA กัน noise quantization               */
+        Encoder_Update(&henc2);
+        current_degree_out = henc2.position_deg;
+
+        static float bs_prev_deg = 0.0f;
+        static float bs_vel_ema  = 0.0f;
+        static float bs_prev_vel = 0.0f;
+        static float bs_acc_ema  = 0.0f;
+        float pos_deg  = henc2.position_deg;
+        float vel_raw  = (pos_deg - bs_prev_deg) * 1000.0f;   /* deg/s (÷0.001) */
+        bs_prev_deg    = pos_deg;
+        bs_vel_ema    += 0.1f  * (vel_raw - bs_vel_ema);      /* smooth vel */
+        float acc_raw  = (bs_vel_ema - bs_prev_vel) * 1000.0f;/* deg/s² */
+        bs_prev_vel    = bs_vel_ema;
+        bs_acc_ema    += 0.05f * (acc_raw - bs_acc_ema);      /* smooth acc */
+
+        modbus_registers[REG_BS_POS] = (uint16_t)(int16_t)(pos_deg    * 10.0f * BS_DIR_SIGN);
+        modbus_registers[REG_BS_VEL] = (uint16_t)(int16_t)(bs_vel_ema * 10.0f * BS_DIR_SIGN);
+        modbus_registers[REG_BS_ACC] = (uint16_t)(int16_t)(bs_acc_ema * 10.0f * BS_DIR_SIGN);
+
         return;
     }
 

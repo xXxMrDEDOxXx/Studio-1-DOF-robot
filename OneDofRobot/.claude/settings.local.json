@@ -18,7 +18,9 @@
       "PowerShell(Get-Process | Where-Object { $_.Modules -match \"COM3\" } 2>$null; Write-Host \"---\"; $results = @\\(\\); $procs = Get-Process; foreach \\($p in $procs\\) { try { $handles = $p.Modules | Where-Object { $_.FileName -match \"serial|com\" } ; if \\($handles\\) { $results += \"$\\($p.Name\\) \\(PID $\\($p.Id\\)\\)\" } } catch {} }; if \\($results\\) { $results } else { \"ไม่พบผ่าน Modules\" })",
       "PowerShell(python -c \"import serial; s=serial.Serial\\('COM3'\\); print\\('opened'\\); s.close\\(\\)\" 2>&1)",
       "PowerShell($p = Get-CimInstance Win32_Process -Filter \"ProcessId=33768\"; [PSCustomObject]@{ PID=$p.ProcessId; CmdLine=$p.CommandLine } | Format-List)",
-      "PowerShell(\\(Get-Command arm-none-eabi-gcc -ErrorAction SilentlyContinue\\).Source)"
+      "PowerShell(\\(Get-Command arm-none-eabi-gcc -ErrorAction SilentlyContinue\\).Source)",
+      "Bash(grep -n '```' context.md)",
+      "Bash(grep -c '```' context.md)"
     ]
   }
 }
