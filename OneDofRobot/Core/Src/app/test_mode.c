@@ -16,10 +16,12 @@
 #define RAD2DEG  (180.0f / 3.14159265f)
 #define TM_DWELL_MS  500U
 
-/* ── Precision test: S-Curve params (ปรับได้อิสระจาก trajectory.h) ── */
-#define TM_PREC_V_MAX   TRAJ_V_MAX   /* rad/s  — เหมือนค่า default       */
-#define TM_PREC_A_MAX   15.0f        /* rad/s² — เพิ่มจาก 8 → 15         */
-#define TM_PREC_J_MAX   80.0f        /* rad/s³ — เพิ่มจาก 40 → 80        */
+/* ── Legacy S-Curve params — ไม่ได้ใช้แล้ว ──────────────────────────────────
+ *  ปัจจุบัน Precision ใช้ Septic time-scaled (Septic_MoveTo + TRAJ_MOVE_TIME)
+ *  ซึ่งไม่กินค่า V/A/J เหล่านี้ (เก็บไว้เผื่อย้อนกลับไปใช้ S-Curve)            */
+#define TM_PREC_V_MAX   TRAJ_V_MAX   /* rad/s  */
+#define TM_PREC_A_MAX   15.0f        /* rad/s² */
+#define TM_PREC_J_MAX   80.0f        /* rad/s³ */
 
 /* ── States ──────────────────────────────────────────────────────────────── */
 #define TM_IDLE    0
@@ -51,9 +53,9 @@ static float             tm_ref_qdd = 0.0f, tm_ref_j = 0.0f;
 /* ── Private helpers ─────────────────────────────────────────────────────── */
 static void _tm_telemetry(uint16_t task_bits)
 {
-    modbus_registers[REG_BS_POS]  = (uint16_t)(int16_t)(q_out   * RAD2DEG * 10.0f * BS_DIR_SIGN);
-    modbus_registers[REG_BS_VEL]  = (uint16_t)(int16_t)(qd_out  * RAD2DEG * 10.0f * BS_DIR_SIGN);
-    modbus_registers[REG_BS_ACC]  = (uint16_t)(int16_t)(qdd_out * RAD2DEG * 10.0f * BS_DIR_SIGN);
+    modbus_registers[REG_BS_POS]  = (uint16_t)(int16_t)(q_out   * RAD2DEG * 10.0f * BS_DIR_SIGN); /* deg ×10   */
+    modbus_registers[REG_BS_VEL]  = (uint16_t)(int16_t)(qd_out            * 10.0f * BS_DIR_SIGN); /* rad/s ×10 */
+    modbus_registers[REG_BS_ACC]  = (uint16_t)(int16_t)(qdd_out           * 10.0f * BS_DIR_SIGN); /* rad/s² ×10*/
     modbus_registers[REG_BS_TASK] = task_bits;
 }
 

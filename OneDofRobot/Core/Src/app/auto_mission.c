@@ -26,8 +26,8 @@
  *  firmware → PC/Dashboard (READ):
  *    0x27  REG_BS_TASK      bit 1 = GoPick, bit 2 = GoPlace, 0 = Idle
  *    0x28  REG_BS_POS       position  × 10  [int16, deg]
- *    0x29  REG_BS_VEL       velocity  × 10  [int16, deg/s]
- *    0x30  REG_BS_ACC       accel     × 10  [int16, deg/s²]
+ *    0x29  REG_BS_VEL       velocity  × 10  [int16, rad/s]
+ *    0x30  REG_BS_ACC       accel     × 10  [int16, rad/s²]
  *
  *  hole-index → angle:
  *    angle_deg = |index| × HOLE_STEP_DEG   (default 5°/index, ดู auto_mission.h)
@@ -94,9 +94,9 @@ static void _write_telemetry(uint16_t task_bits)
 {
     modbus_registers[REG_BS_TASK] = task_bits;
     /* telemetry กลับทิศให้ตรง convention ของ base (BS_DIR_SIGN) */
-    modbus_registers[REG_BS_POS]  = (uint16_t)(int16_t)(q_out   * RAD2DEG * 10.0f * BS_DIR_SIGN);
-    modbus_registers[REG_BS_VEL]  = (uint16_t)(int16_t)(qd_out  * RAD2DEG * 10.0f * BS_DIR_SIGN);
-    modbus_registers[REG_BS_ACC]  = (uint16_t)(int16_t)(qdd_out * RAD2DEG * 10.0f * BS_DIR_SIGN);
+    modbus_registers[REG_BS_POS]  = (uint16_t)(int16_t)(q_out   * RAD2DEG * 10.0f * BS_DIR_SIGN); /* deg ×10   */
+    modbus_registers[REG_BS_VEL]  = (uint16_t)(int16_t)(qd_out            * 10.0f * BS_DIR_SIGN); /* rad/s ×10 */
+    modbus_registers[REG_BS_ACC]  = (uint16_t)(int16_t)(qdd_out           * 10.0f * BS_DIR_SIGN); /* rad/s² ×10*/
 }
 
 static void _set_state(uint8_t new_state)
@@ -237,7 +237,7 @@ void AutoMission_Update(void)
 			break; /* กลับมาสั้นๆ แค่นี้พอครับ */
 
         /* ════════════════════════════════════════════════════════════════════
-         *  MOVE_PICK — Trapz เดินไป pick position (เร็ว, ไม่มีของ)
+         *  MOVE_PICK — Septic เดินไป pick position (เร็ว, ไม่มีของ)
          * ════════════════════════════════════════════════════════════════════*/
         case PP_MOVE_PICK:
             Septic_Update(&pp_septic, &ref_q, &ref_qd, &ref_qdd, &ref_j);
@@ -269,7 +269,7 @@ void AutoMission_Update(void)
             break;
 
         /* ════════════════════════════════════════════════════════════════════
-         *  MOVE_PLACE — SCurve พาของไป place (smooth)
+         *  MOVE_PLACE — Septic พาของไป place (smooth)
          * ════════════════════════════════════════════════════════════════════*/
         case PP_MOVE_PLACE:
             Septic_Update(&pp_septic, &ref_q, &ref_qd, &ref_qdd, &ref_j);
@@ -339,7 +339,7 @@ void AutoMission_Update(void)
             break;
 
         /* ════════════════════════════════════════════════════════════════════
-         *  JOG_MOVING — Trapz ไปยัง jog target แล้วกลับ JOG_IDLE
+         *  JOG_MOVING — Septic ไปยัง jog target แล้วกลับ JOG_IDLE
          * ════════════════════════════════════════════════════════════════════*/
         case PP_JOG_MOVING:
             Septic_Update(&pp_septic, &ref_q, &ref_qd, &ref_qdd, &ref_j);
@@ -353,7 +353,7 @@ void AutoMission_Update(void)
             break;
 
         /* ════════════════════════════════════════════════════════════════════
-         *  GO_POINT — Trapz ไปยัง P2P target
+         *  GO_POINT — Septic ไปยัง P2P target
          * ════════════════════════════════════════════════════════════════════*/
         case PP_GO_POINT:
             Septic_Update(&pp_septic, &ref_q, &ref_qd, &ref_qdd, &ref_j);

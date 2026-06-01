@@ -114,7 +114,7 @@ static void _dash_stop_motor(void)
     modbus_registers[REG_REF_Q]  = 0;
 
     modbus_registers[REG_BS_POS]  = (uint16_t)(int16_t)(q_out  * (180.0f / 3.14159265f) * 10.0f * BS_DIR_SIGN);
-    modbus_registers[REG_BS_VEL]  = (uint16_t)(int16_t)(qd_out * (180.0f / 3.14159265f) * 10.0f * BS_DIR_SIGN);
+    modbus_registers[REG_BS_VEL]  = (uint16_t)(int16_t)(qd_out * 10.0f * BS_DIR_SIGN);   /* rad/s ×10 */
     modbus_registers[REG_BS_ACC]  = 0;
     modbus_registers[REG_BS_TASK] = TASK_IDLE;
 }
@@ -169,7 +169,7 @@ void Dashboard_Update(void)
             }
             /* telemetry ระหว่าง jog (กลับทิศ BS_DIR_SIGN) */
             modbus_registers[REG_BS_POS]  = (uint16_t)(int16_t)(q_out  * (180.0f / 3.14159265f) * 10.0f * BS_DIR_SIGN);
-            modbus_registers[REG_BS_VEL]  = (uint16_t)(int16_t)(qd_out * (180.0f / 3.14159265f) * 10.0f * BS_DIR_SIGN);
+            modbus_registers[REG_BS_VEL]  = (uint16_t)(int16_t)(qd_out * 10.0f * BS_DIR_SIGN);   /* rad/s ×10 */
             modbus_registers[REG_BS_ACC]  = 0;
             modbus_registers[REG_BS_TASK] = TASK_GO_POINT;
             return;
@@ -269,7 +269,7 @@ void Dashboard_Update(void)
     modbus_registers[REG_REF_Q]  = (uint16_t)(int16_t)(dash_ref_q         * 100.0f);
 
     modbus_registers[REG_BS_POS]  = (uint16_t)(int16_t)(q_out  * (180.0f / 3.14159265f) * 10.0f * BS_DIR_SIGN);
-    modbus_registers[REG_BS_VEL]  = (uint16_t)(int16_t)(qd_out * (180.0f / 3.14159265f) * 10.0f * BS_DIR_SIGN);
+    modbus_registers[REG_BS_VEL]  = (uint16_t)(int16_t)(qd_out * 10.0f * BS_DIR_SIGN);   /* rad/s ×10 */
     modbus_registers[REG_BS_ACC]  = 0;
     modbus_registers[REG_BS_TASK] = TASK_IDLE;
 }

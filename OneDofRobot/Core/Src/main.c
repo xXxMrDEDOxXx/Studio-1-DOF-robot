@@ -80,37 +80,14 @@ volatile uint8_t debug_selector = 0;
 volatile uint8_t debug_estop    = 0;
 
 Encoder_t henc2;
-SCurve_Profile_t my_profile;
 
 /* SystemMode_t typedef อยู่ใน base_system.h
  * ประกาศ definition ที่นี่ — base_system.h มี extern declaration แล้ว */
 volatile SelectorMode_t selector_mode      = SELECTOR_MANUAL; /* physical switch */
 volatile SystemMode_t   current_system_mode = MODE_HOMING;    /* actual mode     */
 
-typedef enum {
-    STATE_IDLE,    // สถานะว่าง (รอคนกดปุ่ม)
-    STATE_MOVING,  // กำลังหมุนมอเตอร์ไปเป้าหมาย
-    STATE_WAITING  // ถึงเป้าหมายแล้ว (กำลังนับเวลาหน่วง 2 วินาที)
-} SequenceState_t;
-SequenceState_t seq_state = STATE_IDLE; // เริ่มต้นที่สถานะว่าง
-
-const float WAIT_TIME = 2;           // กำหนดเวลาหน่วง (2 วินาที)
-float waypoints_deg[] = {90.0f, 0.0f, 180.0f, 0.0f, 360.0f, 0.0f};
-float current_degree_out;
-float wait_timer = 0.0f;                // ตัวจับเวลารอ
-float ref_q = 0.0f;
-float ref_qd = 0.0f;
-float ref_qdd = 0.0f;
-float ref_j = 0.0f;
-
-
-int signal= 0;
-int current_wp_index = 0;               // จุดที่กำลังจะไป
-
-
-const uint8_t total_waypoints = 6;
-volatile uint8_t debug_pb0_state;
-volatile uint8_t debug_pb1_state;
+/* hybrid e-stop: >0 = กำลังเบรกนุ่มก่อนตัด MOE (นับถอยใน TIM6 ISR) */
+volatile uint16_t estop_brake_ticks = 0;
 
 uint8_t rx_buffer[128];
 
@@ -336,17 +313,18 @@ int main(void)
   MX_ADC1_Init();
   /* USER CODE BEGIN 2 */
 
-  TempSensor_Init();        /* ADC1 CH16 — อ่าน chip_temp_C ใน Live Expressions */
+  /* ── Heartbeat/Modbus ขึ้นก่อนเพื่อนใน USER CODE 2 → หลัง NVIC reset base system
+   *    เห็น "alive" ไวสุด (USART2 init แล้วใน auto region ด้านบน) ──────────────*/
   Heartbeat_Init();
-  HAL_UARTEx_EnableFifoMode(&huart2);  /* เปิด RX FIFO 8 byte — margin กัน overrun
-                                        * (override DisableFifoMode ใน usart.c) */
+  HAL_UARTEx_EnableFifoMode(&huart2);  /* เปิด RX FIFO 8 byte — margin กัน overrun */
   __HAL_UART_CLEAR_OREFLAG(&huart2);   /* เคลียร์ error flags ก่อน */
   HAL_UARTEx_ReceiveToIdle_IT(&huart2, rx_buffer, sizeof(rx_buffer));
+
+  TempSensor_Init();        /* ADC1 CH16 — อ่าน chip_temp_C ใน Live Expressions */
   henc2.htim = &htim2;
 
   Encoder_Init(&henc2, &htim2);
   HAL_TIM_Encoder_Start(&htim2, TIM_CHANNEL_ALL);
-  SCurve_Init(&my_profile);
   Cascade_Control_Init();
   HAL_TIM_PWM_Start(&htim1, TIM_CHANNEL_1);
   __HAL_TIM_MOE_ENABLE(&htim1);
@@ -852,28 +830,18 @@ void HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin)
 		if (HAL_GPIO_ReadPin(GPIOC, GPIO_PIN_13) == GPIO_PIN_RESET)
 		{
 			/* ── กดปุ่ม E-Stop ─────────────────────────────────────── */
-
-			/* 1. หยุด Hardware ทันที */
-			__HAL_TIM_SET_COMPARE(&htim1, TIM_CHANNEL_1, 0);
-			__HAL_TIM_MOE_DISABLE(&htim1);
-
-			/* 2. ล็อกสถานะ Software */
-			seq_state             = STATE_IDLE;
-			my_profile.is_running = 0;
+            __HAL_TIM_SET_COMPARE(&htim1, TIM_CHANNEL_1, 0);
+            __HAL_TIM_MOE_DISABLE(&htim1);
+			/* 1. เริ่มเบรกนุ่ม (hybrid) — ยังไม่ตัด MOE
+			 *    TIM6 ISR จะ decel ~150ms แล้วค่อยตัดไฟ. ไม่ Cascade_Control_Reset
+			 *    ที่นี่ เพราะต้องคง velocity estimate (KF) ไว้ให้เบรกได้             */
 			modbus_registers[REG_ESTOP] = 1;   /* บอก PC: E-Stop active */
+			modbus_registers[REG_RUN]   = 0;   /* หยุด Dashboard loop      */
 
-			/* 3. หยุด Dashboard ISR loop
-			 *    ป้องกัน Dashboard_Update() ส่ง voltage ต่อหลัง e-stop */
-			modbus_registers[REG_RUN] = 0;
 
-			/* 4. Reset KF + PID integrators
-			 *    ป้องกัน integrator windup และ KF state ผิดพลาดหลัง resume */
-			Cascade_Control_Reset();
 
-			/* 5. Reset Auto Mission state machine (ถ้าอยู่ใน MODE_AUTO) */
+			/* 2. clear mission state (hold ปลอดภัย + gripper abort) — ไม่แตะ KF */
 			AutoMission_Reset();
-
-			/* 6. Reset Test Mode */
 			TestMode_Reset();
 		}
 		else
@@ -883,15 +851,7 @@ void HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin)
 			 * ใหม่ทุกครั้ง — ไม่ resume ตำแหน่งเดิม (ตำแหน่ง encoder อาจเพี้ยน
 			 * ระหว่างที่ตัดไฟ motor drive)                                         */
 			if (modbus_registers[REG_ESTOP] == 1) {
-				modbus_registers[REG_ESTOP] = 0;
-				__HAL_TIM_MOE_ENABLE(&htim1);
-				Cascade_Control_Reset();        /* sync KF + clear integrators */
-				AutoMission_Reset();
-				TestMode_Reset();
-				Homing_Start();                 /* sensor-based homing ใหม่ */
-				current_system_mode            = MODE_HOMING;
-				modbus_registers[REG_SYS_MODE] = MODE_HOMING;
-				modbus_registers[REG_BS_TASK]  = TASK_HOMING;
+				NVIC_SystemReset();
 			}
 		}
     }
@@ -965,35 +925,63 @@ void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim)
         /* Joystick ก่อน — คืน 1 = joystick กำลัง drive motor → ข้าม Dashboard
          * (กัน joystick กับ dashboard/jog แย่งสั่งมอเตอร์)                 */
         uint8_t joy_active = Joystick_Update();
-        if (!joy_active) {
-            Dashboard_Update();   /* base jog (0x05) + telemetry */
+
+        /* ── E-Stop ค้าง (joystick A / ปุ่มตู้ PC13) → freeze ──────────────────
+         * เรียก Joystick_Update ด้านบนแล้ว (รับปุ่ม A กดซ้ำเพื่อ reset ได้) แต่
+         * ห้าม drive มอเตอร์/กระตุ้น gripper ต่อ — ตัด compare ไว้ (กันมอเตอร์ขยับ
+         * แม้ MOE หลุด) ส่วน gripper ถูก Abort → safe ตั้งแต่ตอน latch แล้ว ค้างนิ่ง */
+        if (modbus_registers[REG_ESTOP]) {
+            __HAL_TIM_SET_COMPARE(&htim1, TIM_CHANNEL_1, 0);
+        } else {
+            if (!joy_active) {
+                Dashboard_Update();   /* base jog (0x05) + telemetry */
+            }
+            Gripper_Update();         /* manual gripper (0x02/0x03) + reed */
         }
-        Gripper_Update();         /* manual gripper (0x02/0x03) + reed */
 
-        /* ── เขียน base telemetry (0x28/0x29/0x30) ทุก tick ใน MANUAL ──────────
-         * เดิม telemetry เขียนเฉพาะใน auto/test/dashboard → joystick (free/point)
-         * base UI ไม่เห็น pos/vel/acc → แขนหุ่นในจอไม่ขยับตาม. แก้: คำนวณจาก
-         * encoder (henc2) ตรงๆ ทุก tick → สดทั้ง point + free mode (bypass cascade)
-         * Encoder_Update เรียกซ้ำได้ (idempotent ใน tick เดียว: diff=0)
-         * vel/acc = finite-diff (dt=1ms) + EMA กัน noise quantization               */
+        /* ── เขียน base telemetry (0x28/0x29/0x30) ใน MANUAL ───────────────────
+         * joystick (free/point) bypass cascade → KF ไม่อัปเดต ต้องคำนวณ vel/acc
+         * จาก encoder เอง. POS = deg ×10, VEL/ACC = rad/s,rad/s² ×10 (ตรงป้าย UI)
+         *
+         * ★ vel/acc วัดบน window 10ms ไม่ใช่ทุก 1ms:
+         *   encoder 1 count = 2π/8192 = 7.67e-4 rad. ถ้า diff ทุก 1ms, 1 count/tick
+         *   = 0.767 rad/s, accel พุ่งสูง → ×10 เสี่ยงทะลุ int16 wrap.
+         *   window 10ms ลด quantization step 10× + EMA + clamp                      */
         Encoder_Update(&henc2);
-        current_degree_out = henc2.position_deg;
 
-        static float bs_prev_deg = 0.0f;
-        static float bs_vel_ema  = 0.0f;
-        static float bs_prev_vel = 0.0f;
-        static float bs_acc_ema  = 0.0f;
-        float pos_deg  = henc2.position_deg;
-        float vel_raw  = (pos_deg - bs_prev_deg) * 1000.0f;   /* deg/s (÷0.001) */
-        bs_prev_deg    = pos_deg;
-        bs_vel_ema    += 0.1f  * (vel_raw - bs_vel_ema);      /* smooth vel */
-        float acc_raw  = (bs_vel_ema - bs_prev_vel) * 1000.0f;/* deg/s² */
-        bs_prev_vel    = bs_vel_ema;
-        bs_acc_ema    += 0.05f * (acc_raw - bs_acc_ema);      /* smooth acc */
+        static float   bs_win_prev_rad = 0.0f;   /* pos ตอนต้น window 10ms [rad] */
+        static float   bs_vel_ema      = 0.0f;   /* [rad/s]  */
+        static float   bs_prev_vel     = 0.0f;
+        static float   bs_acc_ema      = 0.0f;   /* [rad/s²] */
+        static uint8_t bs_win_tick     = 0;
 
-        modbus_registers[REG_BS_POS] = (uint16_t)(int16_t)(pos_deg    * 10.0f * BS_DIR_SIGN);
-        modbus_registers[REG_BS_VEL] = (uint16_t)(int16_t)(bs_vel_ema * 10.0f * BS_DIR_SIGN);
-        modbus_registers[REG_BS_ACC] = (uint16_t)(int16_t)(bs_acc_ema * 10.0f * BS_DIR_SIGN);
+        /* POS — ทุก tick [deg ×10] */
+        modbus_registers[REG_BS_POS] = (uint16_t)(int16_t)(henc2.position_deg * 10.0f * BS_DIR_SIGN);
+
+        /* VEL/ACC — ทุก 10ms (window finite-diff, หน่วย rad ให้ตรงป้าย UI) */
+        if (++bs_win_tick >= 10U) {
+            bs_win_tick = 0;
+
+            float pos_rad   = henc2.position_rad;
+            float vel_raw   = (pos_rad - bs_win_prev_rad) * 100.0f;  /* rad/s (÷0.01) */
+            bs_win_prev_rad = pos_rad;
+            bs_vel_ema     += 0.3f * (vel_raw - bs_vel_ema);
+
+            float acc_raw   = (bs_vel_ema - bs_prev_vel) * 100.0f;   /* rad/s² (÷0.01) */
+            bs_prev_vel     = bs_vel_ema;
+            bs_acc_ema     += 0.3f * (acc_raw - bs_acc_ema);
+
+            /* ×10 ให้ตรง decode ฝั่ง BS (÷10); clamp กัน int16 overflow */
+            float vel_q = bs_vel_ema * 10.0f * BS_DIR_SIGN;
+            float acc_q = bs_acc_ema * 10.0f * BS_DIR_SIGN;
+            if      (vel_q >  32767.0f) vel_q =  32767.0f;
+            else if (vel_q < -32768.0f) vel_q = -32768.0f;
+            if      (acc_q >  32767.0f) acc_q =  32767.0f;
+            else if (acc_q < -32768.0f) acc_q = -32768.0f;
+
+            modbus_registers[REG_BS_VEL] = (uint16_t)(int16_t)vel_q;
+            modbus_registers[REG_BS_ACC] = (uint16_t)(int16_t)acc_q;
+        }
 
         return;
     }
@@ -1132,8 +1120,6 @@ void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim)
 
     /* ── Report current mode (0x32) ── */
     modbus_registers[REG_SYS_MODE] = (uint16_t)current_system_mode;
-
-    current_degree_out = Encoder_GetPositionDeg(&henc2);
 }
 
 

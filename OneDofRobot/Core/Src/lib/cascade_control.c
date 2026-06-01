@@ -50,8 +50,8 @@ KalmanFilter_t hkf;
 
 // ---------------- Setup PID Controllers ----------------
 PID_Controller pos_ctrl = { .integral = 0.0f, .prev_error = 0.0f, .integral_limit = 10.0f };
-/* integral_limit = MAX_VOLTAGE ใช้ได้ทั้ง cascade mode (output เป็น rad/s ก็ clamp ที่ 10 อยู่แล้ว)
- * และ direct drive mode (output เป็น V ไม่ควรเกิน 24V)                                          */
+/* integral_limit = 10 ใช้ได้ทั้ง cascade mode (output เป็น rad/s clamp ที่ ±10 อยู่แล้ว)
+ * และ direct drive mode (output เป็น V — 10V ต่ำกว่า MAX_VOLTAGE 24V อย่างปลอดภัย)              */
 PID_Controller vel_ctrl = { .integral = 0.0f, .prev_error = 0.0f, .integral_limit = 6.0f };
 /* integral_limit = 6.0f (ไม่ใช่ MAX_VOLTAGE):
  *   จำกัด Ki × integral ≤ ±6V → ป้องกัน integral windup ที่ทำให้ bang-bang saturate
@@ -76,11 +76,11 @@ static float K_ff = 5.4f;
  *  มอเตอร์ไม่ตอบสนองเมื่อ duty < ~4.5% (วัดจริง) = 450 counts
  *
  *  Zone 1:  duty == 0                    → 0  (ปกติ)
- *  Zone 2:  0 < duty < HYST  (< 1.35%)  → 0  ตัดเป็น 0 (noise floor — ป้องกัน chattering)
- *  Zone 3:  HYST ≤ duty < MIN (1.35–4.5%) → kick ขึ้น MIN  (เพียงพอจะเคลื่อน)
+ *  Zone 2:  0 < duty < HYST  (< 2.25%)  → 0  ตัดเป็น 0 (noise floor — ป้องกัน chattering)
+ *  Zone 3:  HYST ≤ duty < MIN (2.25–4.5%) → kick ขึ้น MIN  (เพียงพอจะเคลื่อน)
  *  Zone 4:  duty ≥ MIN                   → pass-through ปกติ
  *
- *  Hysteresis = 30% × MIN = 135 counts ≈ 0.32V
+ *  Hysteresis = 50% × MIN = 225 counts ≈ 0.54V
  *  → ป้องกัน limit-cycle เมื่อ pos_error < ~0.5°
  * ─────────────────────────────────────────────────────────────────────────── */
 #define PWM_DEADBAND_MIN   450U   /* 4.5% × 9999 — motor เริ่มขยับ          */
@@ -114,8 +114,15 @@ static float K_ff = 5.4f;
  * ─────────────────────────────────────────────────────────────────────────── */
 #define BL_RAD       0.03566f   /* backlash width [rad]   — hardcoded จากการวัด */
 #define BL_VEL_THR   0.05f      /* velocity threshold [rad/s] to detect direction */
+/* ── Take-up แบบ ramp (กัน near move กระตุก) ─────────────────────────────────
+ *  เดิม inject/clear bl_comp เป็น step 2° ทันที → pos loop เห็น error กระโดด →
+ *  velocity setpoint พุ่ง ~0.55 rad/s = kick แรง (เด่นชัดตอน move สั้น).
+ *  ramp 2° ภายใน BL_TAKEUP_MS แทน → error ค่อยๆ โต → setpoint นุ่ม ไม่กระชาก    */
+#define BL_TAKEUP_MS  150.0f     /* เวลาค่อยๆ ใส่/ถอน backlash [ms] (ใหญ่=นุ่มแต่ช้า) */
+#define BL_STEP       (BL_RAD / BL_TAKEUP_MS)   /* rad ต่อ tick (1 tick = 1 ms) */
 
-static float  bl_comp     = 0.0f;  /* offset ที่กำลัง inject [rad] */
+static float  bl_comp     = 0.0f;  /* offset ที่ inject จริง (ramp เข้าหา target) [rad] */
+static float  bl_target   = 0.0f;  /* เป้าหมายของ bl_comp: ±BL_RAD หรือ 0          */
 static int8_t bl_last_dir = 0;     /* ทิศล่าสุด: +1 / -1 / 0=unknown */
 
 /* ── Pos-loop divider state (file-scope เพื่อให้ Reset() เข้าถึงได้) ── */
@@ -215,6 +222,7 @@ void Cascade_Control_Reset(void)
 
     /* 5. Reset backlash compensator */
     bl_comp     = 0.0f;
+    bl_target   = 0.0f;
     bl_last_dir = 0;
 
     /* 6. Reset pos-loop divider */
@@ -311,19 +319,22 @@ void Cascade_Control_Update_FF(float ref_q, float ref_qd, float ref_qdd)
                             (ref_qd < -BL_VEL_THR) ? -1 : 0;
 
         if (bl_cur_dir != 0) {
-            /* ── ตรวจ direction reversal ── */
+            /* ── ตรวจ direction reversal → ตั้ง target (ramp เข้าหา ไม่ step) ── */
             if (bl_last_dir != 0 && bl_cur_dir != bl_last_dir) {
-                bl_comp = BL_RAD * (float)bl_cur_dir;
+                bl_target = BL_RAD * (float)bl_cur_dir;
             }
-            /* ── joint ยืนยันเคลื่อนแล้ว → clear offset ── */
-            if (bl_comp != 0.0f) {
-                if ((bl_comp > 0.0f && qd_out >  BL_VEL_THR) ||
-                    (bl_comp < 0.0f && qd_out < -BL_VEL_THR)) {
-                    bl_comp = 0.0f;
-                }
+            /* ── joint ยืนยันเคลื่อนในทิศใหม่แล้ว → ตั้ง target กลับ 0 (ramp ถอน) ── */
+            if ((bl_target > 0.0f && qd_out >  BL_VEL_THR) ||
+                (bl_target < 0.0f && qd_out < -BL_VEL_THR)) {
+                bl_target = 0.0f;
             }
             bl_last_dir = bl_cur_dir;
         }
+
+        /* ── ramp bl_comp → bl_target ด้วย rate จำกัด (ทำทุก tick) ── */
+        if      (bl_comp < bl_target - BL_STEP) bl_comp += BL_STEP;
+        else if (bl_comp > bl_target + BL_STEP) bl_comp -= BL_STEP;
+        else                                    bl_comp  = bl_target;
     }
     float ref_q_comp = ref_q + bl_comp;
 
@@ -393,7 +404,7 @@ void Cascade_Control_Update_FF(float ref_q, float ref_qd, float ref_qdd)
      *  tau_d [N.m joint] -> V_dist = tau_d * R / (N * e_eff * Kt)
      *  gain ≈ 53×
      *
-     *  KF_Q_TAUD = 1e-4 → tau_d smooth มาก (bandwidth ต่ำ)
+     *  KF_Q_TAUD = 1e-8 → tau_d smooth มาก (bandwidth ต่ำ)
      *  ช่วย compensate backlash + friction ที่เปลี่ยนช้า
      *  Safety clamp ±6V ป้องกัน saturate
      */

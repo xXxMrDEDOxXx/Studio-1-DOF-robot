@@ -11,7 +11,7 @@
  *    D → PB11 : Gripper arm Up/Down toggle
  *    K → PB10 : Toggle movement mode (Free ↔ Point-to-Point)
  *
- *  ADC X-axis → PC2 (ADC2_IN8), 0–4095:
+ *  ADC X-axis → PC3 (ADC2_IN9), 0–4095:
  *    Free  mode: < 800 → CCW at 15% duty | > 3500 → CW at 15% duty
  *    Point mode: < 800 → +5° (CCW) move  | > 3500 → −5° (CW) move
  *                (S-curve / Septic, jerk-continuous; re-trigger after neutral)

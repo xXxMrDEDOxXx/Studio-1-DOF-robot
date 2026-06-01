@@ -16,9 +16,9 @@
  *   ถ้า mode อื่น → หยุดมอเตอร์ทันทีและ return
  *
  * Register Map (ดูรายละเอียดใน base_system.h):
- *   WRITE (PC → STM32): REG_VEL_KP … REG_TARGET_POS  (0x10 – 0x1B)
- *   READ  (STM32 → PC): REG_REF_QD … REG_REF_Q       (0x20 – 0x25)
- *   STATUS:             REG_ISR_CNT, REG_ESTOP        (0x30 – 0x31)
+ *   WRITE (PC → STM32): REG_VEL_KP … REG_TARGET_POS  (0x33 – 0x3E)
+ *   READ  (STM32 → PC): REG_REF_QD … REG_REF_Q       (0x3F – 0x44)
+ *   STATUS:             REG_ESTOP (0x31), REG_ISR_CNT (0x45)
  * ─────────────────────────────────────────────────────────────────────────────
  */
 

@@ -154,7 +154,7 @@ void KF_Init(KalmanFilter_t *kf, float q0)
      */
     kf->Q[0][0] = KF_Q_POS;    /* q     */
     kf->Q[1][1] = KF_Q_VEL;    /* q_dot */
-    kf->Q[2][2] = KF_Q_TAUD;   /* tau_d (ใหญ่ = ตาม J_arm·q̈ ทันขึ้น) */
+    kf->Q[2][2] = KF_Q_TAUD;   /* tau_d (เล็ก = estimate แทบนิ่ง, V_dist ปิดอยู่) */
     kf->Q[3][3] = KF_Q_CUR;    /* i     */
 
     /* ---------- Measurement noise ---------- */
@@ -269,7 +269,7 @@ void KF_Update(KalmanFilter_t *kf, float V_in, float z_pos)
 
     /* ==============================================================
      *  STEP 2b: Clamp P diagonal ป้องกัน covariance โต unbounded
-     *  (Q_TAUD=1.0 ทำให้ P[2][2] โตเร็ว → coupling ผ่าน Ad → P[1][1] โต)
+     *  (defensive: กัน P[2][2] โตเร็วถ้าตั้ง Q_TAUD ใหญ่ → coupling ผ่าน Ad → P[1][1] โต)
      * ============================================================== */
     {
         const float P_max[4] = { 1e3f, 1e4f, 1e4f, 1e3f };

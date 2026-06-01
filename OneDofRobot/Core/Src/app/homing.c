@@ -12,13 +12,13 @@
 #include "trajectory.h"        /* Septic — unwind 360° ด้วย trajectory                 */
 
 /* ── Tuning ─────────────────────────────────────────────────────────────── */
-#define HOMING_SEEK_DUTY    800U    /* 5.5% duty — seek (วิ่งต่อเนื่อง พอ)    */
-#define HOMING_LEAVE_DUTY   800U    /* 5.5% duty — ออกจาก zone ก่อน seek     */
+#define HOMING_SEEK_DUTY    800U    /* 8.0% duty — seek (วิ่งต่อเนื่อง พอ)    */
+#define HOMING_LEAVE_DUTY   800U    /* 8.0% duty — ออกจาก zone ก่อน seek     */
 #define HOMING_RETURN_DUTY  800U    /* 8.0% duty — กลับทิศจากนิ่ง ต้องสู้
                                      * static friction + เก็บ backlash 2°
                                      * (550 อ่อนไป → ค้าง)                   */
 #define HOMING_LEAVE_TICKS  10000U  /* 10 s timeout สำหรับ H_LEAVE           */
-#define HOMING_SEEK_TICKS   30000U  /* 20 s timeout                          */
+#define HOMING_SEEK_TICKS   30000U  /* 30 s timeout                          */
 #define HOMING_COUNT_TICKS  15000U  /* 15 s timeout — กันค้างใน H_COUNT      */
 #define HOMING_RETURN_TICKS 15000U  /* 15 s timeout — กันค้างใน H_RETURN     */
 #define HOMING_SETTLE_TICKS  1000U  /* 1 s รอมอเตอร์หยุดนิ่งก่อน H_COUNT   */

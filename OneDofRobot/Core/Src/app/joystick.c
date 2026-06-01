@@ -21,6 +21,7 @@
 /* ── External state ──────────────────────────────────────────────────────── */
 extern volatile float q_out;   /* actual position [rad] — from cascade_control.c */
 extern volatile SystemMode_t current_system_mode;
+extern volatile uint16_t estop_brake_ticks;   /* hybrid e-stop brake (main.c) */
 
 /* ══════════════════════════════════════════════════════════════════════════
  *  ADC2 bare-metal helpers (PC3 = ADC2_IN9)
@@ -141,7 +142,7 @@ void Joystick_Init(void)
     gpio.Pull = GPIO_PULLUP;
     HAL_GPIO_Init(GPIOB, &gpio);
 
-    /* ADC input (GPIOC PC2) */
+    /* ADC input (GPIOC PC3) */
     gpio.Pin  = JOY_ADC_Pin;
     gpio.Mode = GPIO_MODE_ANALOG;
     gpio.Pull = GPIO_NOPULL;
@@ -177,30 +178,35 @@ uint8_t Joystick_Update(void)
      *                              (sensor-based — เหมือนเปิดเครื่อง)
      * (ปุ่มตู้ PC13 ปล่อย ก็ re-home เหมือนกัน — สองทางอิสระต่อกัน)            */
     if (btn_edge[BTN_A]) {
-        if (modbus_registers[REG_ESTOP] == 0) {
-            /* → Emergency STOP */
+    	if (modbus_registers[REG_ESTOP] == 0) {
+			/* ====================================================================
+			 * กดครั้งที่ 1: Emergency STOP (หยุดการทำงานทุกอย่าง)
+			 * ==================================================================== */
+			modbus_registers[REG_ESTOP] = 1;
+			modbus_registers[REG_RUN]   = 0;
             __HAL_TIM_SET_COMPARE(&htim1, TIM_CHANNEL_1, 0);
-            __HAL_TIM_MOE_DISABLE_UNCONDITIONALLY(&htim1);
-            modbus_registers[REG_ESTOP] = 1;
-            modbus_registers[REG_RUN]   = 0;
-            Cascade_Control_Reset();
-            AutoMission_Reset();
-            TestMode_Reset();
-            joy_prev_driving = 0;
-        } else {
-            /* → RESET: เปิด MOE + กลับไปทำ homing (sensor) ใหม่ */
-            modbus_registers[REG_ESTOP]    = 0;
-            __HAL_TIM_MOE_ENABLE(&htim1);
-            Cascade_Control_Reset();
-            AutoMission_Reset();
-            TestMode_Reset();
-            Homing_Start();                       /* sensor-based homing */
-            current_system_mode            = MODE_HOMING;
-            modbus_registers[REG_SYS_MODE] = MODE_HOMING;
-            modbus_registers[REG_BS_TASK]  = TASK_HOMING;
-            joy_prev_driving = 0;
-            return 0U;   /* ออกทันที → Priority 1 (HOMING) คุมตั้งแต่ tick หน้า */
-        }
+            __HAL_TIM_MOE_DISABLE(&htim1);
+			AutoMission_Reset();      /* clear mission + gripper abort */
+			TestMode_Reset();
+			joy_prev_driving = 0;
+
+			/* หมายเหตุ: หากต้องการให้ตัดไฟมอเตอร์ "ทันที" แบบไม่รอเบรกนุ่ม (Hard Stop)
+			 * ให้เอาคอมเมนต์บรรทัดล่างนี้ออกครับ: */
+			// __HAL_TIM_MOE_DISABLE(&htim1);
+
+		} else {
+			/* ====================================================================
+			 * กดครั้งที่ 2: NVIC System Reset (รีเซ็ตบอร์ด)
+			 * ==================================================================== */
+
+			/* ── ห้ามรีเซ็ตบอร์ด ถ้าปุ่ม E-stop หน้าตู้ (Hardware) ยังถูกกดค้างอยู่ ── */
+			if (HAL_GPIO_ReadPin(E_stop_GPIO_Port, E_stop_Pin) == GPIO_PIN_RESET) {
+				return 0U;   /* ตู้ยังกดอยู่ → บล็อกการทำงานไว้ ไม่ให้รีเซ็ต */
+			}
+
+			/* สั่ง Reset ไมโครคอนโทรลเลอร์ (STM32 จะทำการรีบูตตัวเองใหม่ทั้งหมด) */
+			NVIC_SystemReset();
+		}
     }
 
     /* หยุดทำงานทั้งหมดถ้า ESTOP active (รอกด A ซ้ำ หรือปุ่มตู้ PC13 เพื่อ clear) */

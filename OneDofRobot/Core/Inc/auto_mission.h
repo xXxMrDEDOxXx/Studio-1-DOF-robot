@@ -11,8 +11,7 @@
  *  เรียกใช้โดย HAL_TIM_PeriodElapsedCallback → case MODE_AUTO
  *
  *  Profile ที่ใช้:
- *    Pick → Place : SCurve  (smooth, carrying rod)
- *    Place → Pick : Trapz   (faster, no load)
+ *    ทุก move : Septic (7th-order) time-scaled — jerk-continuous (เนียนสุด)
  *
  *  ── Register sources (ตรงกับ Base System จริง) ───────────────────────────
  *  COMMAND (PC/Base System → firmware):
@@ -24,8 +23,8 @@
  *  STATUS (firmware → PC/Base System):
  *    REG_BS_TASK (0x27)   current task bits (GoPick / GoPlace / Idle)
  *    REG_BS_POS  (0x28)   position  × 10  [deg]
- *    REG_BS_VEL  (0x29)   velocity  × 10  [deg/s]
- *    REG_BS_ACC  (0x30)   accel     × 10  [deg/s²]
+ *    REG_BS_VEL  (0x29)   velocity  × 10  [rad/s]
+ *    REG_BS_ACC  (0x30)   accel     × 10  [rad/s²]
  *
  *  ── Hole-index to angle conversion ──────────────────────────────────────
  *    angle_deg = |hole_index| × HOLE_STEP_DEG
@@ -47,14 +46,14 @@
  *  P&P State constants  (เขียนลง REG_BS_TASK — PC อ่านได้)
  * ─────────────────────────────────────────────────────────────────────────────*/
 #define PP_IDLE           0   /* รอคำสั่ง                                         */
-#define PP_MOVE_PICK      1   /* Trapz: กำลังเดินกลับไป pick position             */
+#define PP_MOVE_PICK      1   /* Septic: กำลังเดินไป pick position                */
 #define PP_DWELL_PICK     2   /* รอ dwell (gripper ปิด)                           */
-#define PP_MOVE_PLACE     3   /* SCurve: กำลังพาของไป place position              */
+#define PP_MOVE_PLACE     3   /* Septic: กำลังพาของไป place position              */
 #define PP_DWELL_PLACE    4   /* รอ dwell (gripper เปิด)                          */
 #define PP_DONE           5   /* ภารกิจสำเร็จ — hold ตำแหน่งสุดท้าย              */
 #define PP_JOG_IDLE       6   /* รอ jog step จาก REG_BS_JOG_DEG (0x05)          */
-#define PP_JOG_MOVING     7   /* กำลัง jog (Trapz)                               */
-#define PP_GO_POINT       8   /* กำลังเดินไป P2P target (Trapz)                  */
+#define PP_JOG_MOVING     7   /* กำลัง jog (Septic)                              */
+#define PP_GO_POINT       8   /* กำลังเดินไป P2P target (Septic)                 */
 #define PP_GO_POINT_HOLD  9   /* ถึง target แล้ว holding                         */
 #define PP_GO_HOME        10  /* BS Go Home: control กลับ position 0 (ไม่ force seek) */
 

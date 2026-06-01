@@ -1,6 +1,6 @@
-../Core/Src/app/test_mode.c:52:13:_tm_telemetry	1
-../Core/Src/app/test_mode.c:60:13:_tm_start_move	4
-../Core/Src/app/test_mode.c:78:6:TestMode_Init	1
-../Core/Src/app/test_mode.c:85:6:TestMode_Reset	1
-../Core/Src/app/test_mode.c:94:6:TestMode_Start	8
-../Core/Src/app/test_mode.c:127:6:TestMode_Update	14
+../Core/Src/app/test_mode.c:54:13:_tm_telemetry	1
+../Core/Src/app/test_mode.c:62:13:_tm_start_move	4
+../Core/Src/app/test_mode.c:80:6:TestMode_Init	1
+../Core/Src/app/test_mode.c:87:6:TestMode_Reset	1
+../Core/Src/app/test_mode.c:96:6:TestMode_Start	8
+../Core/Src/app/test_mode.c:129:6:TestMode_Update	14

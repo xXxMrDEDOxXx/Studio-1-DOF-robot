@@ -126,12 +126,12 @@
                               *   tradeoff: ตาม velocity จริงได้ช้าลง
                               *   tune: 1e-6 → 1e-5 → 1e-4 ถ้าต้องการ response เร็วขึ้น */
 #define KF_Q_CUR    1e-2f    /* i     : current process noise                              */
-#define KF_Q_TAUD   1e-8f    /* tau_d : ลดลงจาก 1e0 → tau_d estimate smooth ขึ้น ~10×
+#define KF_Q_TAUD   1e-8f    /* tau_d : เล็กมาก → tau_d estimate แทบนิ่ง
+                              *   (disturbance feed-forward V_dist ปิดใช้งานอยู่ใน
+                              *    cascade_control.c — แกนหมุนแนวนอนไม่มี gravity)
                               *   KF bandwidth ของ tau_d ≈ sqrt(Q/R_meas) / dt
-                              *   1e0  → tau_d ตาม noise เร็ว → V_dist กระตุก
-                              *   1e-2 → tau_d smooth กว่า   → V_dist นิ่งพอควบคุมได้
-                              *   ถ้ายัง noisy ให้ลดเป็น 1e-3
-                              *   ถ้า disturbance ตาม load ไม่ทัน ให้เพิ่มกลับมา */
+                              *   ถ้าจะเปิด V_dist (แกนตั้ง/มี load) ให้เพิ่ม Q_TAUD
+                              *   ขึ้น (1e-4 … 1e0) ให้ tau_d ตาม load ได้ทัน */
 
 #define KF_R_MEAS   1.471e-7f  /* encoder (0.5 count)²  — ค่า theoretical
                                 *   อย่าลดต่ำกว่านี้มาก: R→0 ทำให้ K[1] ขยาย

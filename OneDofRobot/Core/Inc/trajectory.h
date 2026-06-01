@@ -15,16 +15,15 @@
 // ─────────────────────────────────────────────────────────────────────────────
 //  Trajectory Parameters  (θ_mission = 5° = 0.0873 rad)
 //
-//  S-Curve  (Pick→Place, smooth, carrying rod):
-//    Tj = A_MAX / J_MAX = 8.0/40 = 0.2s  (smooth เท่าเดิม)
-//    Ta = V_MAX / A_MAX - Tj = 4.0/8.0 - 0.2 = 0.3s
-//    T_total ≈ 2(Tj+Ta) + Tv → เร็วกว่าเดิม ~2.5×
+//  หมายเหตุ: Auto Pick&Place + Test Precision ใช้ Septic time-scaled (TRAJ_MOVE_TIME)
+//  ค่าด้านล่างใช้โดย S-Curve และ Trapz (เช่น Test Performance):
 //
-//  Trapz    (Place→Pick, faster, no load):
-//    a_calc  = V_MAX / ACCEL_TIME = 4.0/0.5 = 8.0 rad/s²
-//    T_total ≈ 0.20s,            V_peak ≈ 0.85 rad/s
+//  S-Curve  (smooth, jerk-limited):
+//    Tj = A_MAX / J_MAX      = 6.4/15  = 0.427s
+//    Ta = V_MAX / A_MAX − Tj = 3.2/6.4 − 0.427 = 0.073s
 //
-//  Budget: 4 rods × (0.57 + 2s + 0.21 + 2s) = 19.1s  (< 40s ✓)
+//  Trapz    (faster, no load):
+//    a_calc  = V_MAX / ACCEL_TIME = 3.2/0.45 ≈ 7.11 rad/s²
 // ─────────────────────────────────────────────────────────────────────────────
 #define TRAJ_V_MAX      3.2f    /* ความเร็วสูงสุด [rad/s]  (hardware limit 4.2) */
 #define TRAJ_A_MAX      6.4f    /* ความเร่งสูงสุด [rad/s²] ใช้โดย S-Curve       */

@@ -57,7 +57,9 @@
  *  DASHBOARD READ  (0x3F–0x44) — STM32→PC, ใช้เฉพาะ MODE_MANUAL
  *  STATUS          (0x45)       — ISR counter
  *
- *  modbus_registers[] size = 0x46 = 70  (ครอบคลุมทุก address)
+ *  AUTO MISSION P&P (0x46–0x50) — PC↔STM32
+ *
+ *  modbus_registers[] size = 0x51 = 81  (ครอบคลุมทุก address)
  * ─────────────────────────────────────────────────────────────────────────────*/
 
 /* ── BASE SYSTEM WRITE (PC → STM32) ─────────────────────────────────────────
@@ -96,8 +98,8 @@
 #define REG_BS_TASK         0x27  /* Current task bits: 1=Homing 2=GoPick      */
                                   /*                    4=GoPlace  8=GoPoint   */
 #define REG_BS_POS          0x28  /* Position  × 10  [int16, deg]              */
-#define REG_BS_VEL          0x29  /* Velocity  × 10  [int16, deg/s]            */
-#define REG_BS_ACC          0x30  /* Accel     × 10  [int16, deg/s²]           */
+#define REG_BS_VEL          0x29  /* Velocity  × 10  [int16, rad/s]            */
+#define REG_BS_ACC          0x30  /* Accel     × 10  [int16, rad/s²]           */
 
 /* task bit masks สำหรับ REG_BS_TASK */
 #define TASK_HOMING         0x0001
@@ -174,6 +176,12 @@ typedef enum {
 
 extern volatile SelectorMode_t selector_mode;       /* from physical switch  */
 extern volatile SystemMode_t   current_system_mode; /* actual running mode   */
+
+/* ── Hybrid E-Stop brake (definition ใน main.c) ─────────────────────────────
+ *  trigger e-stop (ปุ่มตู้/จอย) set estop_brake_ticks โดยยังไม่ตัด MOE →
+ *  TIM6 ISR เบรกนุ่ม (controlled) จน ticks หมด แล้วค่อยตัด MOE (de-energize)  */
+#define ESTOP_BRAKE_TICKS  150U   /* ~150 ms @ 1 kHz tick */
+extern volatile uint16_t estop_brake_ticks;
 
 /* ─────────────────────────────────────────────────────────────────────────────
  *  Modbus register array  (defined in base_system.c)
