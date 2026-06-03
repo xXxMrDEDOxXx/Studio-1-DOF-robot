@@ -46,10 +46,10 @@ KalmanFilter_t hkf;
  *  ใช้ตอน MODE_AUTO/TEST (dashboard เขียน Modbus ทับไม่ได้)
  *  MODE_MANUAL ใช้ค่าจาก Modbus แทน (สำหรับ tune)
  * ─────────────────────────────────────────────────────────────────────────── */
-#define POS_KP_AUTO  15.5f
-#define POS_KI_AUTO  1.2f
+#define POS_KP_AUTO  22.0f
+#define POS_KI_AUTO  8.6f
 #define POS_KD_AUTO  0.0f
-#define VEL_KP_AUTO  5.5f
+#define VEL_KP_AUTO  8.5f
 #define VEL_KI_AUTO  0.5f
 #define VEL_KD_AUTO  0.0f    /* Kd=0: ตัด derivative kick — backlash step × Kd/dt
                               * = 27V spike ทุกครั้งเปลี่ยนทิศ (ดู troubleshoot) */

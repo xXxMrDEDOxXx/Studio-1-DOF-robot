@@ -4,6 +4,33 @@
 
 ---
 
+## [2026-06-01] P&P ทิศหมุนมั่ว (บางที CW บางที CCW) — Septic หมุนทางสั้นสุด ไม่สน sign index
+
+**อาการ:** base สั่ง P&P ทิศ CW ทุก slot แต่หุ่นบางที CW บางที CCW ไม่ตรงที่สั่ง
+
+**Root cause:** `auto_mission.c` ทุก move = absolute positioning `Septic_MoveTo(q_out, target)`
+→ Septic คิด `d = target − q_out` แล้วหมุน **"ทางสั้นสุด"** ตามเครื่องหมาย d — **ไม่สน sign
+ของ index ที่ base ส่งมาเป็นทิศ** (README 3.8: + = CCW, − = CW)
+- ที่ move = **180° พอดี** (เช่น 0↔180°) ทิศของ `target−q_out` ไวต่อ noise ของ q_out มาก
+  → q_out คลาดนิดเดียว เครื่องหมาย flip → **บางรอบ CW บางรอบ CCW** = ตรงอาการเป๊ะ
+
+**แก้ (auto_mission.c) — directional continuous-accumulated target:**
+- เพิ่ม `_dir_move_target(from, idx)`: magnitude=|idx|×5° (ตำแหน่งรู), sign=ทิศบังคับ
+  → หมุนจาก `from` ไป "ทิศที่สั่ง" จนเจอรู (mod 360°, ใช้ fmodf) → คืน target สะสม
+  (อาจ >2π) ที่ทำให้ Septic ได้ d เครื่องหมายแน่นอน **ไม่ flip ตาม noise**
+- ทิศ: base +(CCW)→firmware −, base −(CW)→firmware + (BS_DIR_SIGN=−1, firmware+=CW)
+- **hole 0 (home ไม่มี sign)** → carry ทิศ leg ก่อนหน้า (`pp_last_fw_dir`) → 0→180→360 หมุน
+  ทางเดียวต่อเนื่องตามที่ base ตั้งใจ (ตรงภาพ: ทุก leg CW)
+- `_load_sequence(anchor)`: สร้าง chain จาก anchor=q_out ตอนเริ่ม, cursor สะสมต่อเนื่อง
+  (ไม่อ่าน q_out ซ้ำกลาง chain → ไม่ flip). inter-leg move ใช้ pp_pick/place_rad[] (สะสม)
+- GoPoint index ก็ใช้ `_dir_move_target` (directional); GoPoint degree = absolute ตาม sign
+- ✅ encoder = continuous int32 multi-turn (ไม่ wrap 360°) → target สะสมเอื้อมถึงจริง
+  (เหมือน homing H_UNWIND ที่หมุน 360° ได้อยู่แล้ว)
+
+**ผู้ใช้ยืนยัน semantics:** "หมุนตามเครื่องหมาย index เสมอ" (ไม่ใช่ทางสั้นสุด)
+
+---
+
 ## [2026-06-01] MANUAL/joystick: base UI แขนไม่ขยับ — telemetry (0x28/0x29/0x30) ไม่อัปเดต
 
 **อาการ:** คุม joystick แบบ manual → position/speed/acc ไม่ update; โดยเฉพาะรูปแขนหุ่นใน

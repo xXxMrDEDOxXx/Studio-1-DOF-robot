@@ -69,11 +69,14 @@ static uint8_t   pp_pair_count  = 0;
 static uint32_t  pp_settle_t0   = 0;     /* timestamp เริ่ม anti-swing dwell */
 /* pp_dwell_start เลิกใช้ — dwell ใช้ Gripper_IsDone() (reed) แทน timer */
 
-/* ─── Decoded sequence (radians) ─────────────────────────────────────────── */
+/* ─── Decoded sequence (radians, continuous-accumulated targets) ──────────────
+ *  pp_pick_rad/pp_place_rad = ตำแหน่งสะสมจริง (อาจ > 2π) → Septic ได้ d ทิศแน่นอน */
 #define MAX_PAIRS  8     /* slots 0x12–0x21 = 16 reg = 8 คู่ (pick+place)        */
-static float pp_pick_rad [MAX_PAIRS];
-static float pp_place_rad[MAX_PAIRS];
-static float pp_goto_target = 0.0f;  /* GoPoint / Jog destination [rad] */
+static float  pp_pick_rad [MAX_PAIRS];
+static float  pp_place_rad[MAX_PAIRS];
+static float  pp_goto_target = 0.0f;  /* GoPoint / Jog destination [rad] */
+static int8_t pp_last_fw_dir = -1;    /* ทิศ firmware leg ล่าสุด (carry สำหรับ hole 0)
+                                       *  default −1 = CW (firmware+); ปรับ carry ทิศต่อเนื่อง */
 
 /* ─── Trajectory ref outputs ─────────────────────────────────────────────── */
 static float ref_q   = 0.0f;
@@ -85,13 +88,42 @@ static float ref_j   = 0.0f;
  *  Private helpers
  * ─────────────────────────────────────────────────────────────────────────────*/
 
-/* hole index → angle [rad]
- *   magnitude = hole index, sign: + = CCW / − = CW  (ตาม base spec 0x12–0x21)
- *   ใช้ signed idx ตรงๆ → รองรับ CCW/CW; BS_DIR_SIGN แปลงทิศ base(CCW+) → firmware(CW+) */
-static float _index_to_rad(int16_t idx)
+/* ── Directional continuous target (แก้ทิศ P&P มั่ว) ─────────────────────────
+ *  base spec 0x12–0x21: magnitude = ตำแหน่งรูสัมบูรณ์ (×5°), sign = ทิศบังคับ
+ *    + = CCW, − = CW (README 3.8)
+ *
+ *  ปัญหาเดิม: Septic_MoveTo(q_out, target_absolute) หมุน "ทางสั้นสุด" (target−q_out)
+ *  → ไม่สน sign; ที่ move 180° พอดี ทิศ flip ตาม noise → บางรอบ CW บางรอบ CCW
+ *
+ *  แก้: คำนวณ target แบบ "continuous-accumulated" — หมุนจาก `from` (ค่า target สะอาด
+ *  ของ leg ก่อนหน้า) ไป "ทิศที่สั่ง" จนเจอรู |idx| (mod 360°). Septic จึงได้ d ที่มี
+ *  เครื่องหมายแน่นอน (ไม่ flip). idx=0 (home ไม่มี sign) → ใช้ทิศ leg ก่อนหน้า (carry)
+ *
+ *  ทิศ firmware: base "+"(CCW) → firmware "−"; base "−"(CW) → firmware "+"
+ *               (BS_DIR_SIGN=−1; firmware "+" = CW ตามที่วัดจริง)               */
+#define PP_TWO_PI   6.2831853f
+#define PP_DIR_EPS  0.02f   /* ~1.1° — holes ห่าง 5° → ถ้าใกล้รูในระยะนี้ถือว่า "ถึงแล้ว" */
+
+static float _dir_move_target(float from, int16_t idx)
 {
-    float deg = (float)idx * HOLE_STEP_DEG;   /* signed — ไม่ทิ้ง sign อีกแล้ว */
-    return deg * DEG2RAD * BS_DIR_SIGN;
+    float mag_rad = (float)(idx < 0 ? -idx : idx) * HOLE_STEP_DEG * DEG2RAD;
+    float A       = mag_rad * BS_DIR_SIGN;   /* firmware representative angle ของรู (wrapped) */
+
+    int8_t fw_dir;
+    if      (idx > 0) fw_dir = (BS_DIR_SIGN < 0.0f) ? -1 : +1;   /* base CCW */
+    else if (idx < 0) fw_dir = (BS_DIR_SIGN < 0.0f) ? +1 : -1;   /* base CW  */
+    else              fw_dir = pp_last_fw_dir;                    /* hole 0: carry ทิศเดิม */
+    pp_last_fw_dir = fw_dir;
+
+    float k = fmodf(A - from, PP_TWO_PI);
+    if (fw_dir > 0) {
+        if (k < 0.0f) k += PP_TWO_PI;                       /* [0, 2π) — หมุนบวก */
+        if (k < PP_DIR_EPS || k > PP_TWO_PI - PP_DIR_EPS) k = 0.0f;  /* อยู่ที่รูแล้ว → นิ่ง */
+    } else {
+        if (k > 0.0f) k -= PP_TWO_PI;                       /* (−2π, 0] — หมุนลบ */
+        if (k > -PP_DIR_EPS || k < -(PP_TWO_PI - PP_DIR_EPS)) k = 0.0f;
+    }
+    return from + k;
 }
 
 /* อัปเดต REG_BS_TASK + telemetry registers ทุก tick */
@@ -109,20 +141,27 @@ static void _set_state(uint8_t new_state)
     pp_state = new_state;
 }
 
-/* โหลด sequence จาก Modbus (0x12–0x1B) → pp_pick_rad[], pp_place_rad[] */
-static void _load_sequence(void)
+/* โหลด sequence จาก Modbus (0x12–0x21) → pp_pick_rad[], pp_place_rad[]
+ *  สร้าง target แบบ "continuous-accumulated" (chain) จาก anchor (ตำแหน่งจริงตอนเริ่ม)
+ *  → แต่ละ leg หมุนตามทิศที่ base สั่ง(sign ของ index) ไม่ใช่ทางสั้นสุด → ทิศไม่มั่ว  */
+static void _load_sequence(float anchor)
 {
     pp_pair_count = (uint8_t)modbus_registers[REG_BS_PAIR_COUNT];
 
     if (pp_pair_count > MAX_PAIRS)
         pp_pair_count = MAX_PAIRS;
 
+    pp_last_fw_dir = -1;          /* default CW (firmware+) สำหรับ hole-0 leg แรก */
+    float cursor   = anchor;      /* clean accumulation cursor (ไม่อ่าน q_out ซ้ำ → ไม่ flip) */
+
     for (uint8_t i = 0; i < pp_pair_count; i++) {
         int16_t pick_idx  = (int16_t)modbus_registers[REG_BS_PP_SEQ + i * 2];
         int16_t place_idx = (int16_t)modbus_registers[REG_BS_PP_SEQ + i * 2 + 1];
 
-        pp_pick_rad[i]  = _index_to_rad(pick_idx);
-        pp_place_rad[i] = _index_to_rad(place_idx);
+        pp_pick_rad[i]  = _dir_move_target(cursor, pick_idx);
+        cursor          = pp_pick_rad[i];
+        pp_place_rad[i] = _dir_move_target(cursor, place_idx);
+        cursor          = pp_place_rad[i];
     }
 }
 
@@ -170,8 +209,8 @@ void AutoMission_StartAuto(void)
     if (pp_pair_count > MAX_PAIRS) pp_pair_count = MAX_PAIRS;
 
     if (pp_pair_count > 0) {
-        /* Pick & Place mode */
-        _load_sequence();
+        /* Pick & Place mode — สร้าง chain จาก anchor = ตำแหน่งจริงตอนเริ่ม */
+        _load_sequence(q_out);
         pp_pair_idx = 0;
 
         Septic_MoveTo(&pp_septic, q_out, pp_pick_rad[0], TRAJ_MOVE_TIME);
@@ -181,18 +220,17 @@ void AutoMission_StartAuto(void)
         /* GoPoint mode */
         uint16_t unit = modbus_registers[REG_BS_P2P_UNIT];
         int16_t raw   = (int16_t)modbus_registers[REG_BS_P2P_TARGET];
-        float deg;
 
         if (unit == 0) {
-            deg = (float)raw;
+            /* degree — absolute target ตามทิศของ sign (กลับทิศ base→firmware) */
+            pp_goto_target = (float)raw * DEG2RAD * BS_DIR_SIGN;
+            Septic_MoveTo(&pp_septic, q_out, pp_goto_target, TRAJ_MOVE_TIME);
         } else {
-            float mag = (float)(raw < 0 ? -raw : raw) * HOLE_STEP_DEG;
-            deg = (raw < 0) ? -mag : mag;
+            /* index — หมุนตามทิศ sign ไปถึงรู (directional, ไม่ใช่ทางสั้นสุด) */
+            pp_last_fw_dir = -1;
+            pp_goto_target = _dir_move_target(q_out, raw);
+            Septic_MoveTo(&pp_septic, q_out, pp_goto_target, TRAJ_MOVE_TIME);
         }
-
-        /* base "+" = CCW → กลับทิศให้ตรง firmware */
-        pp_goto_target = deg * DEG2RAD * BS_DIR_SIGN;
-        Septic_MoveTo(&pp_septic, q_out, pp_goto_target, TRAJ_MOVE_TIME);
         _set_state(PP_GO_POINT);
     }
 }
