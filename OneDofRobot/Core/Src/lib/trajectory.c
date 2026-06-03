@@ -24,6 +24,7 @@ void Trapz_MoveTo(Trapz_Profile_t *prof, float start_pos, float target_pos) {
     prof->current_t = 0.0f;
 
     float distance = fabs(target_pos - start_pos);
+    g_traj_span_rad = distance;      /* gate backlash comp (cascade_control) */
     prof->sign = (target_pos > start_pos) ? 1.0f : -1.0f;
 
     if (distance == 0.0f) {
@@ -64,6 +65,7 @@ void Trapz_MoveToFull(Trapz_Profile_t *prof, float start_pos, float target_pos,
     prof->current_t = 0.0f;
 
     float distance = fabs(target_pos - start_pos);
+    g_traj_span_rad = distance;      /* gate backlash comp (cascade_control) */
     prof->sign = (target_pos > start_pos) ? 1.0f : -1.0f;
 
     if (distance == 0.0f) { prof->is_running = 0; return; }
@@ -186,6 +188,7 @@ void SCurve_MoveTo(SCurve_Profile_t *prof, float start_pos, float target_pos) {
     prof->prev_a_cmd = 0.0f;
 
     float distance = fabs(target_pos - start_pos);
+    g_traj_span_rad = distance;      /* gate backlash comp (cascade_control) */
     prof->sign = (target_pos >= start_pos) ? 1.0f : -1.0f;
 
     if (distance == 0.0f) { prof->is_running = 0; return; }
@@ -210,6 +213,7 @@ void SCurve_MoveToFull(SCurve_Profile_t *prof, float start_pos, float target_pos
     prof->prev_a_cmd = 0.0f;
 
     float distance = fabs(target_pos - start_pos);
+    g_traj_span_rad = distance;      /* gate backlash comp (cascade_control) */
     prof->sign = (target_pos >= start_pos) ? 1.0f : -1.0f;
 
     if (distance == 0.0f) { prof->is_running = 0; return; }
@@ -327,6 +331,7 @@ void Quintic_MoveTo(Quintic_Profile_t *prof, float start_pos, float target_pos,
     prof->current_t = 0.0f;
 
     float dist = fabsf(prof->d);
+    g_traj_span_rad = dist;          /* gate backlash comp (cascade_control) */
     if (dist < 1e-6f) {       /* ไม่ขยับ */
         prof->T = 0.0f;
         prof->is_running = 0;
@@ -416,6 +421,7 @@ void Septic_MoveTo(Septic_Profile_t *prof, float start_pos, float target_pos,
     prof->current_t = 0.0f;
 
     float dist = fabsf(prof->d);
+    g_traj_span_rad = dist;          /* gate backlash comp (cascade_control) */
     if (dist < 1e-6f) {
         prof->T = 0.0f;
         prof->is_running = 0;

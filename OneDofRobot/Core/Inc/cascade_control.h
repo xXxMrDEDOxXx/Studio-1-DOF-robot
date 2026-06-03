@@ -34,6 +34,8 @@ extern volatile float q_out;          // ตำแหน่งจริง (vola
 extern volatile float qd_out;         // ความเร็วจริง จาก KF (volatile สำหรับ CubeMonitor)
 extern volatile float monitor_V_in;     // แรงดัน magnitude (display)
 extern volatile float monitor_V_signed;  // แรงดัน signed clamped (telemetry/analysis)
+extern volatile float g_traj_span_rad;   // ระยะ move ปัจจุบัน |target−start| [rad]
+                                         //   ตั้งโดย *_MoveTo() — ใช้ gate backlash comp
 
 // ---------------- Public Function Prototypes ----------------
 void Cascade_Control_Init(void);

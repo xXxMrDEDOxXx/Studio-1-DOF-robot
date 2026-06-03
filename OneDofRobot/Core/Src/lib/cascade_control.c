@@ -24,6 +24,10 @@ volatile float monitor_V_in     = 0.0f;  /* magnitude สำหรับ display
 volatile float monitor_V_signed = 0.0f;  /* SIGNED clamped V สำหรับ telemetry/analysis */
 static   float kf_V_in          = 0.0f;  /* SIGNED สำหรับ Kalman Filter                */
 
+/* ระยะ move ปัจจุบัน |target−start| [rad] — *_MoveTo() เป็นคนตั้ง (ดู trajectory.c)
+ * ใช้ gate backlash comp: move สั้น (<120°) ปิด comp ป้องกันสั่น/ไม่ smooth */
+volatile float g_traj_span_rad  = 0.0f;
+
 // ---------------- Private Variables (ตัวแปรภายใน) ----------------
 volatile float q_out = 0.0f;       // ตำแหน่งจริง
 static float prev_q_out = 0.0f;
@@ -102,7 +106,7 @@ static float K_ff = 5.4f;
  *  จูน: V_COULOMB เริ่ม ~deadband voltage (1.08V). ถ้ายังไม่ทะลุ → เพิ่ม;
  *       ถ้า overshoot/กระตุกตอนเริ่ม → ลด หรือเพิ่ม QD_EPS ให้ ramp นุ่มขึ้น
  * ─────────────────────────────────────────────────────────────────────────── */
-#define V_COULOMB   0.8f    /* ขนาด FF [V] ≈ deadband voltage (จูน 0.8–1.5)   */
+#define V_COULOMB   0.5f    /* ขนาด FF [V] ≈ deadband voltage (จูน 0.8–1.5)   */
 #define QD_EPS      0.3f   /* smooth sign ใต้ความเร็วนี้ [rad/s]              */
 
 /* ── Backlash Inverse Compensation ─────────────────────────────────────────
@@ -116,6 +120,8 @@ static float K_ff = 5.4f;
  * ─────────────────────────────────────────────────────────────────────────── */
 #define BL_RAD       0.03566f   /* backlash width [rad]   — hardcoded จากการวัด */
 #define BL_VEL_THR   0.05f      /* velocity threshold [rad/s] to detect direction */
+#define BL_MIN_MOVE_RAD  2.0944f /* 120° — move สั้นกว่านี้ "ปิด" backlash comp
+                                  * (comp ทำให้ near move สั่นแรง/ไม่ smooth) */
 /* ── Take-up แบบ ramp (กัน near move กระตุก) ─────────────────────────────────
  *  เดิม inject/clear bl_comp เป็น step 2° ทันที → pos loop เห็น error กระโดด →
  *  velocity setpoint พุ่ง ~0.55 rad/s = kick แรง (เด่นชัดตอน move สั้น).
@@ -322,8 +328,11 @@ void Cascade_Control_Update_FF(float ref_q, float ref_qd, float ref_qdd)
                             (ref_qd < -BL_VEL_THR) ? -1 : 0;
 
         if (bl_cur_dir != 0) {
-            /* ── ตรวจ direction reversal → ตั้ง target (ramp เข้าหา ไม่ step) ── */
-            if (bl_last_dir != 0 && bl_cur_dir != bl_last_dir) {
+            /* ── ตรวจ direction reversal → ตั้ง target (ramp เข้าหา ไม่ step) ──
+             *  gate: inject เฉพาะ move ยาว ≥ 120° (BL_MIN_MOVE_RAD)
+             *  move สั้น → ข้าม (bl_target คง 0) → ไม่กระตุก/ไม่สั่น  */
+            if (bl_last_dir != 0 && bl_cur_dir != bl_last_dir &&
+                g_traj_span_rad >= BL_MIN_MOVE_RAD) {
                 bl_target = BL_RAD * (float)bl_cur_dir;
             }
             /* ── joint ยืนยันเคลื่อนในทิศใหม่แล้ว → ตั้ง target กลับ 0 (ramp ถอน) ── */
