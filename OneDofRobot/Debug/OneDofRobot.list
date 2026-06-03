@@ -39,9 +39,9 @@ Idx Name          Size      VMA       LMA       File off  Algn
                   CONTENTS, READONLY, DEBUGGING, OCTETS
  17 .debug_line   000235cf  00000000  00000000  00066d18  2**0
                   CONTENTS, READONLY, DEBUGGING, OCTETS
- 18 .debug_str    0011aa7d  00000000  00000000  0008a2e7  2**0
+ 18 .debug_str    0011aa7e  00000000  00000000  0008a2e7  2**0
                   CONTENTS, READONLY, DEBUGGING, OCTETS
- 19 .comment      00000043  00000000  00000000  001a4d64  2**0
+ 19 .comment      00000043  00000000  00000000  001a4d65  2**0
                   CONTENTS, READONLY
  20 .debug_frame  000072a4  00000000  00000000  001a4da8  2**2
                   CONTENTS, READONLY, DEBUGGING, OCTETS
@@ -3713,7 +3713,7 @@ void Gripper_Update(void)
  8001e3c:	681b      	ldr	r3, [r3, #0]
  8001e3e:	687a      	ldr	r2, [r7, #4]
  8001e40:	1ad3      	subs	r3, r2, r3
- 8001e42:	f5b3 7ffa 	cmp.w	r3, #500	@ 0x1f4
+ 8001e42:	f5b3 7f48 	cmp.w	r3, #800	@ 0x320
  8001e46:	d375      	bcc.n	8001f34 <Gripper_Update+0x180>
                 /* sync latch กับผลลัพธ์ sequence: arm ขึ้น, jaw ตาม pick/place
                  * → IDLE จะ hold สถานะนี้ ไม่ดีดกลับ (เช่น pick แล้วไม่ปล่อย rod) */
@@ -8545,7 +8545,7 @@ void Cascade_Control_Update_FF(float ref_q, float ref_qd, float ref_qdd)
  8004268:	200005a4 	.word	0x200005a4
  800426c:	3d121038 	.word	0x3d121038
  8004270:	200005a0 	.word	0x200005a0
- 8004274:	3979480e 	.word	0x3979480e
+ 8004274:	381591a2 	.word	0x381591a2
  8004278:	2000059c 	.word	0x2000059c
         else                                    bl_comp  = bl_target;
  800427c:	4ba6      	ldr	r3, [pc, #664]	@ (8004518 <Cascade_Control_Update_FF+0x624>)

@@ -47,7 +47,7 @@
  *  ลำดับ: arm ลง → คีบ/ปล่อย → arm ขึ้น  (reed เหลือไว้แค่ telemetry REG_BS_REED) */
 #define GRIP_DOWN_MS   500U   /* แขนลง       (0.5 s)  */
 #define GRIP_ACT_MS    500U   /* คีบ/ปล่อย    (0.5 s)  */
-#define GRIP_UP_MS     500U   /* แขนขึ้น      (0.5 s)  */
+#define GRIP_UP_MS     800U   /* แขนขึ้น      (0.5 s)  */
 
 /* ── Manual command codes (REG_BS_GRIPPER_MAN 0x02) ──────────────────────── */
 #define GRIP_MAN_UP     0U

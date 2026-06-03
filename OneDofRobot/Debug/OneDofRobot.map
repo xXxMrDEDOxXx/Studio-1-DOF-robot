@@ -7333,41 +7333,41 @@ LOAD C:/ST/STM32CubeIDE_2.1.1/STM32CubeIDE/plugins/com.st.stm32cube.ide.mcu.exte
  .debug_line    0x0001f23c     0x3660 ./Drivers/STM32G4xx_HAL_Driver/Src/stm32g4xx_hal_uart.o
  .debug_line    0x0002289c      0xd33 ./Drivers/STM32G4xx_HAL_Driver/Src/stm32g4xx_hal_uart_ex.o
 
-.debug_str      0x00000000   0x11aa7d
- .debug_str     0x00000000   0x11aa7d ./Core/Src/app/auto_mission.o
+.debug_str      0x00000000   0x11aa7e
+ .debug_str     0x00000000   0x11aa7e ./Core/Src/app/auto_mission.o
                              0x110fd8 (size before relaxing)
- .debug_str     0x0011aa7d   0x10d61a ./Core/Src/app/can_gripper.o
- .debug_str     0x0011aa7d   0x110e8b ./Core/Src/app/dashboard.o
- .debug_str     0x0011aa7d   0x10d3cd ./Core/Src/app/gripper.o
- .debug_str     0x0011aa7d   0x10dbeb ./Core/Src/app/homing.o
- .debug_str     0x0011aa7d   0x1119c5 ./Core/Src/app/joystick.o
- .debug_str     0x0011aa7d   0x110e9b ./Core/Src/app/test_mode.o
- .debug_str     0x0011aa7d   0x110a5a ./Core/Src/app/volt_test.o
- .debug_str     0x0011aa7d   0x11090d ./Core/Src/comm/base_system.o
- .debug_str     0x0011aa7d   0x1117af ./Core/Src/lib/cascade_control.o
- .debug_str     0x0011aa7d     0x8290 ./Core/Src/lib/datalog.o
- .debug_str     0x0011aa7d   0x10d0a6 ./Core/Src/lib/encoder.o
- .debug_str     0x0011aa7d     0x7cd2 ./Core/Src/lib/kalman_filter.o
- .debug_str     0x0011aa7d   0x11061c ./Core/Src/lib/trajectory.o
- .debug_str     0x0011aa7d   0x112d5d ./Core/Src/main.o
- .debug_str     0x0011aa7d   0x10e2ca ./Core/Src/stm32g4xx_hal_msp.o
- .debug_str     0x0011aa7d   0x10d317 ./Core/Src/stm32g4xx_it.o
- .debug_str     0x0011aa7d   0x10c526 ./Core/Src/system_stm32g4xx.o
- .debug_str     0x0011aa7d       0x96 ./Core/Startup/startup_stm32g474retx.o
- .debug_str     0x0011aa7d   0x10d238 ./Drivers/STM32G4xx_HAL_Driver/Src/stm32g4xx_hal.o
- .debug_str     0x0011aa7d   0x10d553 ./Drivers/STM32G4xx_HAL_Driver/Src/stm32g4xx_hal_adc.o
- .debug_str     0x0011aa7d   0x10d4f9 ./Drivers/STM32G4xx_HAL_Driver/Src/stm32g4xx_hal_adc_ex.o
- .debug_str     0x0011aa7d   0x10cef4 ./Drivers/STM32G4xx_HAL_Driver/Src/stm32g4xx_hal_cortex.o
- .debug_str     0x0011aa7d   0x10c900 ./Drivers/STM32G4xx_HAL_Driver/Src/stm32g4xx_hal_dma.o
- .debug_str     0x0011aa7d   0x10dacd ./Drivers/STM32G4xx_HAL_Driver/Src/stm32g4xx_hal_fdcan.o
- .debug_str     0x0011aa7d   0x10c6b1 ./Drivers/STM32G4xx_HAL_Driver/Src/stm32g4xx_hal_gpio.o
- .debug_str     0x0011aa7d   0x10ca14 ./Drivers/STM32G4xx_HAL_Driver/Src/stm32g4xx_hal_pwr_ex.o
- .debug_str     0x0011aa7d   0x10cc45 ./Drivers/STM32G4xx_HAL_Driver/Src/stm32g4xx_hal_rcc.o
- .debug_str     0x0011aa7d   0x10cc6f ./Drivers/STM32G4xx_HAL_Driver/Src/stm32g4xx_hal_rcc_ex.o
- .debug_str     0x0011aa7d   0x10da24 ./Drivers/STM32G4xx_HAL_Driver/Src/stm32g4xx_hal_tim.o
- .debug_str     0x0011aa7d   0x10d698 ./Drivers/STM32G4xx_HAL_Driver/Src/stm32g4xx_hal_tim_ex.o
- .debug_str     0x0011aa7d   0x10d4e1 ./Drivers/STM32G4xx_HAL_Driver/Src/stm32g4xx_hal_uart.o
- .debug_str     0x0011aa7d   0x10ccdf ./Drivers/STM32G4xx_HAL_Driver/Src/stm32g4xx_hal_uart_ex.o
+ .debug_str     0x0011aa7e   0x10d61a ./Core/Src/app/can_gripper.o
+ .debug_str     0x0011aa7e   0x110e8b ./Core/Src/app/dashboard.o
+ .debug_str     0x0011aa7e   0x10d3cd ./Core/Src/app/gripper.o
+ .debug_str     0x0011aa7e   0x10dbeb ./Core/Src/app/homing.o
+ .debug_str     0x0011aa7e   0x1119c5 ./Core/Src/app/joystick.o
+ .debug_str     0x0011aa7e   0x110e9b ./Core/Src/app/test_mode.o
+ .debug_str     0x0011aa7e   0x110a5a ./Core/Src/app/volt_test.o
+ .debug_str     0x0011aa7e   0x11090d ./Core/Src/comm/base_system.o
+ .debug_str     0x0011aa7e   0x1117b0 ./Core/Src/lib/cascade_control.o
+ .debug_str     0x0011aa7e     0x8290 ./Core/Src/lib/datalog.o
+ .debug_str     0x0011aa7e   0x10d0a6 ./Core/Src/lib/encoder.o
+ .debug_str     0x0011aa7e     0x7cd2 ./Core/Src/lib/kalman_filter.o
+ .debug_str     0x0011aa7e   0x11061c ./Core/Src/lib/trajectory.o
+ .debug_str     0x0011aa7e   0x112d5d ./Core/Src/main.o
+ .debug_str     0x0011aa7e   0x10e2ca ./Core/Src/stm32g4xx_hal_msp.o
+ .debug_str     0x0011aa7e   0x10d317 ./Core/Src/stm32g4xx_it.o
+ .debug_str     0x0011aa7e   0x10c526 ./Core/Src/system_stm32g4xx.o
+ .debug_str     0x0011aa7e       0x96 ./Core/Startup/startup_stm32g474retx.o
+ .debug_str     0x0011aa7e   0x10d238 ./Drivers/STM32G4xx_HAL_Driver/Src/stm32g4xx_hal.o
+ .debug_str     0x0011aa7e   0x10d553 ./Drivers/STM32G4xx_HAL_Driver/Src/stm32g4xx_hal_adc.o
+ .debug_str     0x0011aa7e   0x10d4f9 ./Drivers/STM32G4xx_HAL_Driver/Src/stm32g4xx_hal_adc_ex.o
+ .debug_str     0x0011aa7e   0x10cef4 ./Drivers/STM32G4xx_HAL_Driver/Src/stm32g4xx_hal_cortex.o
+ .debug_str     0x0011aa7e   0x10c900 ./Drivers/STM32G4xx_HAL_Driver/Src/stm32g4xx_hal_dma.o
+ .debug_str     0x0011aa7e   0x10dacd ./Drivers/STM32G4xx_HAL_Driver/Src/stm32g4xx_hal_fdcan.o
+ .debug_str     0x0011aa7e   0x10c6b1 ./Drivers/STM32G4xx_HAL_Driver/Src/stm32g4xx_hal_gpio.o
+ .debug_str     0x0011aa7e   0x10ca14 ./Drivers/STM32G4xx_HAL_Driver/Src/stm32g4xx_hal_pwr_ex.o
+ .debug_str     0x0011aa7e   0x10cc45 ./Drivers/STM32G4xx_HAL_Driver/Src/stm32g4xx_hal_rcc.o
+ .debug_str     0x0011aa7e   0x10cc6f ./Drivers/STM32G4xx_HAL_Driver/Src/stm32g4xx_hal_rcc_ex.o
+ .debug_str     0x0011aa7e   0x10da24 ./Drivers/STM32G4xx_HAL_Driver/Src/stm32g4xx_hal_tim.o
+ .debug_str     0x0011aa7e   0x10d698 ./Drivers/STM32G4xx_HAL_Driver/Src/stm32g4xx_hal_tim_ex.o
+ .debug_str     0x0011aa7e   0x10d4e1 ./Drivers/STM32G4xx_HAL_Driver/Src/stm32g4xx_hal_uart.o
+ .debug_str     0x0011aa7e   0x10ccdf ./Drivers/STM32G4xx_HAL_Driver/Src/stm32g4xx_hal_uart_ex.o
 
 .comment        0x00000000       0x43
  .comment       0x00000000       0x43 ./Core/Src/app/auto_mission.o

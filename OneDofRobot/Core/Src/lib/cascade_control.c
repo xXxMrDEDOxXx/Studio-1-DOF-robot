@@ -120,7 +120,7 @@ static float K_ff = 5.4f;
  *  เดิม inject/clear bl_comp เป็น step 2° ทันที → pos loop เห็น error กระโดด →
  *  velocity setpoint พุ่ง ~0.55 rad/s = kick แรง (เด่นชัดตอน move สั้น).
  *  ramp 2° ภายใน BL_TAKEUP_MS แทน → error ค่อยๆ โต → setpoint นุ่ม ไม่กระชาก    */
-#define BL_TAKEUP_MS  150.0f     /* เวลาค่อยๆ ใส่/ถอน backlash [ms] (ใหญ่=นุ่มแต่ช้า) */
+#define BL_TAKEUP_MS  1000.0f     /* เวลาค่อยๆ ใส่/ถอน backlash [ms] (ใหญ่=นุ่มแต่ช้า) */
 #define BL_STEP       (BL_RAD / BL_TAKEUP_MS)   /* rad ต่อ tick (1 tick = 1 ms) */
 
 static float  bl_comp     = 0.0f;  /* offset ที่ inject จริง (ramp เข้าหา target) [rad] */
