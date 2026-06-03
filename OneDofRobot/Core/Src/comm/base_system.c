@@ -8,6 +8,7 @@
 
 #include "base_system.h"
 #include "main.h"    /* HAL_GetTick(), huart2 (extern ใน main.h) */
+#include "datalog.h" /* DataLog_Total/ReadFlat + LOG_BASE_ADDR (burst readout) */
 #include <string.h>  /* memcpy() */
 
 // ตัวแปรเก็บสถานะภายในไฟล์นี้เท่านั้น
@@ -30,7 +31,7 @@ volatile uint32_t modbus_echo_time   = 0;    /* HAL_GetTick() ตอนที่
  *  ส่งเฉพาะตอน TX ว่าง (gState READY) → ไม่ block RX → write frame ไม่หาย
  *  ── นี่คือ fix ของ heartbeat error: เดิม HAL_UART_Transmit (blocking)
  *     block RX ใน ISR ตอนตอบ read → write (HI) ที่มาแทรกโดน overrun ทิ้ง ── */
-static uint8_t mb_tx[135];
+static uint8_t mb_tx[260];   /* ใหญ่พอรองรับ burst read 119 regs (3+238+2=243) */
 
 
 // ฟังก์ชันเริ่มต้น (เรียกครั้งเดียวก่อนเข้า while loop)
@@ -118,7 +119,25 @@ void Modbus_Parse_Frame(uint8_t *frame, uint16_t length) {
         uint16_t start_addr = (frame[2] << 8) | frame[3];
         uint16_t num_regs = (frame[4] << 8) | frame[5];
 
-
+        // ── Data-log burst readout: addr ≥ LOG_BASE_ADDR อ่านจาก buffer 1kHz ──
+        if (start_addr >= LOG_BASE_ADDR) {
+            if (num_regs == 0 || num_regs > 119) return;        // จำกัดให้พอดี mb_tx
+            uint32_t base = (uint32_t)(start_addr - LOG_BASE_ADDR);
+            if (base + num_regs > DataLog_Total()) return;
+            if (huart2.gState != HAL_UART_STATE_READY) return;
+            mb_tx[0] = SLAVE_ID; mb_tx[1] = 0x03; mb_tx[2] = (uint8_t)(num_regs * 2);
+            uint8_t idx = 3;
+            for (uint16_t i = 0; i < num_regs; i++) {
+                uint16_t val = DataLog_ReadFlat(base + i);
+                mb_tx[idx++] = (val >> 8) & 0xFF;   // Big-Endian
+                mb_tx[idx++] = val & 0xFF;
+            }
+            uint16_t crc_tx = Modbus_CRC16(mb_tx, idx);
+            mb_tx[idx++] = crc_tx & 0xFF;
+            mb_tx[idx++] = (crc_tx >> 8) & 0xFF;
+            HAL_UART_Transmit_IT(&huart2, mb_tx, idx);
+            return;
+        }
 
         // ป้องกันการอ่านเกิน Array ที่เรามี
         if (num_regs > 60) return;

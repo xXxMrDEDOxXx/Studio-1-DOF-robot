@@ -1,7 +1,8 @@
-../Core/Src/lib/cascade_control.c:134:14:calculate_pid	7
-../Core/Src/lib/cascade_control.c:161:13:Motor_Drive	3
-../Core/Src/lib/cascade_control.c:189:6:Cascade_Control_Init	1
-../Core/Src/lib/cascade_control.c:199:6:Cascade_Flush_VelIntegral	1
-../Core/Src/lib/cascade_control.c:206:6:Cascade_Control_Reset	1
-../Core/Src/lib/cascade_control.c:241:6:Cascade_Control_Update	1
-../Core/Src/lib/cascade_control.c:247:6:Cascade_Control_Update_FF	23
+../Core/Src/lib/cascade_control.c:136:14:calculate_pid	7
+../Core/Src/lib/cascade_control.c:163:13:Motor_Drive	4
+../Core/Src/lib/cascade_control.c:192:6:Cascade_Control_Init	1
+../Core/Src/lib/cascade_control.c:202:6:Cascade_Flush_VelIntegral	1
+../Core/Src/lib/cascade_control.c:209:6:Cascade_Control_Reset	1
+../Core/Src/lib/cascade_control.c:244:6:Cascade_Control_Update	1
+../Core/Src/lib/cascade_control.c:250:6:Cascade_Control_Update_FF	23
+../Core/Src/lib/cascade_control.c:445:6:Cascade_OpenLoopVolt	1

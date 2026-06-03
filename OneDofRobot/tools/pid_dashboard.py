@@ -27,7 +27,7 @@
 ================================================================================
 """
 
-import time, threading, datetime
+import time, threading, datetime, os, csv
 from collections import deque
 
 import minimalmodbus, serial, serial.tools.list_ports
@@ -69,6 +69,29 @@ REG_N_TEL        = 6        # 0x3F … 0x44
 
 # ── Status ──────────────────────────────────────────────────────────────────
 REG_ISR_CNT      = 0x45
+
+# ── Data logger (Lab 4 burst, 1 kHz) ────────────────────────────────────────
+REG_LOG_CTRL   = 0x51        # write 1=arm/start, 2=abort
+REG_LOG_STATUS = 0x52        # 0=idle 1=capturing 2=done
+REG_LOG_COUNT  = 0x53        # samples captured
+LOG_BASE       = 0x4000      # Modbus addr ฐานสำหรับอ่าน buffer (ตรงกับ datalog.h)
+LOG_C          = 7           # channels/sample
+LOG_WIN        = 17          # samples ต่อ 1 Modbus read (17×7 = 119 regs)
+LOG_SCALE      = [1000.0, 1000.0, 1000.0, 1000.0, 100.0, 1000.0, 1000.0]
+REG_LOG_LIMIT  = 0x5B        # samples to capture (1000 = 1 sec)
+REG_LOG_TRIG   = 0x5C        # 0=Immediate, 1=Wait Ref Pos, 2=Wait V_in
+REG_LOG_MODE   = 0x5D        # 0=full 7ch (2s)  1=long 2ch V,qd (20s)
+LOG_C_LONG     = 2           # long mode channels: [0]=V [1]=qd
+
+# ── Open-loop voltage test (Lab 1 system ID) ────────────────────────────────
+REG_VT_MODE    = 0x54        # 0=off 1=step 2=sine 3=chirp 4=stair
+REG_VT_AMP     = 0x55        # amplitude V ×100   REG_VT_OFFSET 0x56 V ×100
+REG_VT_OFFSET  = 0x56
+REG_VT_F0      = 0x57        # Hz ×100   REG_VT_F1 0x58   REG_VT_DUR 0x59 ms
+REG_VT_F1      = 0x58
+REG_VT_DUR     = 0x59
+REG_VT_STEPS   = 0x5A
+VT_CODES       = {"step": 1, "sine": 2, "chirp": 3, "stair": 4}
 
 WAVE_CODES = {"square": 0, "sine": 1, "step": 2}
 RAD2DEG    = 180.0 / 3.14159265358979
@@ -442,13 +465,203 @@ def write_pos_target(deg, force=False):
         _last_tgt_raw = None   # force retry รอบถัดไป
         add_log(classify_error(e),"TGT",str(e)); return str(e)
 
+def write_vt(mode, amp, off, f0, f1, dur, steps):
+    """เขียน params (0x55–0x5A) แล้วตั้ง REG_VT_MODE (0x54) สุดท้าย = เริ่มจ่าย V"""
+    if not connected: add_log("WARN","VTEST","not connected"); return "not connected"
+    try:
+        regs = [int(round(amp * 100)) & 0xFFFF, int(round(off * 100)) & 0xFFFF,
+                max(0, int(round(f0 * 100))),   max(0, int(round(f1 * 100))),
+                max(0, int(round(dur))),        max(1, int(round(steps)))]
+        with instrument_lock:
+            instrument.write_registers(REG_VT_AMP, regs)   # 0x55..0x5A
+        _wr(REG_VT_MODE, int(mode))                        # 0x54 last → start
+        add_log("WRITE","VTEST",
+                f"mode={mode} amp={amp} off={off} f0={f0} f1={f1} dur={dur}ms n={steps}")
+        return "ok"
+    except Exception as e:
+        add_log(classify_error(e),"VTEST",str(e)); return str(e)
+
+def write_vt_stop():
+    if not connected: return "not connected"
+    try:
+        _wr(REG_VT_MODE, 0); add_log("WRITE","VTEST","STOP"); return "ok"
+    except Exception as e:
+        add_log(classify_error(e),"VTEST",str(e)); return str(e)
+
+# ─────────────────────────────────────────────────────────────────────────────
+#  DATA LOGGING / RECORDER  (Lab 4 — CSV ตาม schema docs/lab4_plan.md)
+#    columns: t,ref_q,q,ref_qd,qd,ref_qdd,V,i_est   (SI; ref_qdd ว่างเพราะ telemetry
+#    ไม่มี accel ref — ใช้ได้กับ analysis/lab4_analysis.py)
+# ─────────────────────────────────────────────────────────────────────────────
+LOG_DIR    = os.path.join(os.path.dirname(os.path.abspath(__file__)), "logs")
+CSV_HEADER = ["t", "ref_q", "q", "ref_qd", "qd", "ref_qdd", "V", "i_est"]
+recorder   = {"active": False, "rows": [], "tag": "E1", "lock": threading.Lock()}
+burst      = {"running": False, "msg": ""}   # 1 kHz burst capture state
+
+def rec_start(tag):
+    with recorder["lock"]:
+        recorder["rows"] = []
+        recorder["tag"]  = (tag or "exp").strip().replace(" ", "_") or "exp"
+        recorder["active"] = True
+    burst["msg"] = ""
+    add_log("INFO", "REC", f"recording '{recorder['tag']}' …")
+
+def rec_stop():
+    recorder["active"] = False
+    add_log("INFO", "REC", f"stopped — {len(recorder['rows'])} rows buffered")
+
+def _rec_path(ext):
+    os.makedirs(LOG_DIR, exist_ok=True)
+    ts = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+    return os.path.join(LOG_DIR, f"{recorder['tag']}_{ts}.{ext}")
+
+def _save_mat(rows, csv_path):
+    """เซฟ .mat คู่ CSV (สำหรับ Simulink/MATLAB param estimation — Lab 1).
+    ต้องมี numpy+scipy; ถ้าไม่มีก็ข้าม (คืน None). ตัวแปรใน .mat:
+      t,ref_q,q,ref_qd,qd,ref_qdd,V,i_est (column vec) + Ts,fs + u_V,y_qd,y_q """
+    try:
+        import numpy as np
+        from scipy.io import savemat
+    except Exception:
+        return None
+    arr = np.array([[ (float(x) if x not in ("", None) else np.nan) for x in r]
+                    for r in rows], dtype=float)
+    m = {c: arr[:, i].reshape(-1, 1) for i, c in enumerate(CSV_HEADER)}
+    t  = m["t"][:, 0]
+    Ts = float(np.median(np.diff(t))) if len(t) > 1 else 0.001
+    m["Ts"] = Ts
+    m["fs"] = (1.0 / Ts) if Ts > 0 else 0.0
+    m["u_V"]  = m["V"]      # input  : motor voltage
+    m["y_qd"] = m["qd"]     # output : velocity  (สำหรับ ID damp/inertia)
+    m["y_q"]  = m["q"]      # output : position
+    mat_path = os.path.splitext(csv_path)[0] + ".mat"
+    savemat(mat_path, m, do_compression=True)
+    add_log("INFO", "REC", f"MAT saved: {mat_path}")
+    return mat_path
+
+def rec_save_csv():
+    with recorder["lock"]:
+        rows = list(recorder["rows"])
+    if not rows:
+        return None, "no data — กด REC ก่อนแล้วสั่ง move"
+    path = _rec_path("csv")
+    with open(path, "w", newline="") as f:
+        w = csv.writer(f); w.writerow(CSV_HEADER); w.writerows(rows)
+    add_log("INFO", "REC", f"CSV saved: {path}")
+    extra = " + .mat" if _save_mat(rows, path) else ""
+    return path, f"{len(rows)} rows{extra}"
+
+def rec_save_graphs():
+    with recorder["lock"]:
+        rows = list(recorder["rows"]); tag = recorder["tag"]
+    if not rows:
+        return None, "no data"
+    from plotly.subplots import make_subplots
+    t    = [r[0] for r in rows]
+    refq = [(r[1] or 0) * RAD2DEG for r in rows]
+    q    = [(r[2] or 0) * RAD2DEG for r in rows]
+    rqd  = [r[3] for r in rows]; qd = [r[4] for r in rows]; V = [r[6] for r in rows]
+    fig = make_subplots(rows=3, cols=1, shared_xaxes=True, vertical_spacing=0.06,
+                        subplot_titles=("Position [deg]", "Velocity [rad/s]", "Voltage [V]"))
+    fig.add_trace(go.Scatter(x=t, y=refq, name="ref_q",  line=dict(color="#d62728", dash="dash")), 1, 1)
+    fig.add_trace(go.Scatter(x=t, y=q,    name="q",      line=dict(color="#1f77b4")), 1, 1)
+    fig.add_trace(go.Scatter(x=t, y=rqd,  name="ref_qd", line=dict(color="#d62728", dash="dash")), 2, 1)
+    fig.add_trace(go.Scatter(x=t, y=qd,   name="qd",     line=dict(color="#2ca02c")), 2, 1)
+    fig.add_trace(go.Scatter(x=t, y=V,    name="V",      line=dict(color="#ff7f0e")), 3, 1)
+    fig.update_layout(template="plotly_white", height=850, width=1100,
+                      title=f"Lab4 — {tag}", font=dict(size=12), showlegend=True)
+    fig.update_xaxes(title_text="time [s]", row=3, col=1)
+    try:
+        path = _rec_path("png"); fig.write_image(path, scale=2)   # ต้องมี kaleido
+        add_log("INFO", "REC", f"PNG saved: {path}")
+        return path, "PNG"
+    except Exception as e:
+        path = _rec_path("html"); fig.write_html(path)
+        add_log("WARN", "REC", f"ไม่มี kaleido → HTML แทน: {path}")
+        return path, f"HTML (pip install kaleido เพื่อได้ PNG)"
+
+
+def _burst_save(rows):
+    os.makedirs(LOG_DIR, exist_ok=True)
+    ts   = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+    path = os.path.join(LOG_DIR, f"{recorder['tag']}_1kHz_{ts}.csv")
+    with open(path, "w", newline="") as f:
+        w = csv.writer(f); w.writerow(CSV_HEADER); w.writerows(rows)
+    add_log("INFO", "REC", f"1kHz CSV saved: {path}")
+    _save_mat(rows, path)          # เซฟ .mat คู่ด้วย (ถ้ามี scipy)
+    return path
+
+def burst_capture(sec=2.0, trig_mode=0):
+    """arm firmware logger + duration/trigger → รอ capture → เซฟ CSV
+       sec ≤ 2 → full 7ch ; sec > 2 → long 2ch (V,qd) สูงสุด 20s @ 1kHz
+       trig_mode: 0=Immediate  1=Wait ref_q  2=Wait Voltage"""
+    if not connected:
+        burst["msg"] = "⚠ not connected"; return
+    burst["running"] = True
+    try:
+        longm   = sec > 2.0
+        nch     = LOG_C_LONG if longm else LOG_C       # 2 หรือ 7
+        maxn    = 20000 if longm else 2000
+        samples = max(1, min(maxn, int(sec * 1000)))
+        win     = max(1, 119 // nch)                    # samples ต่อ 1 Modbus read (≤119 regs)
+        with instrument_lock:
+            instrument.write_register(REG_LOG_MODE,  1 if longm else 0, functioncode=6)
+            instrument.write_register(REG_LOG_LIMIT, samples, functioncode=6)
+            instrument.write_register(REG_LOG_TRIG,  int(trig_mode), functioncode=6)
+            instrument.write_register(REG_LOG_CTRL,  1, functioncode=6)   # arm
+
+        burst["msg"] = f"⏳ Armed ({sec}s, {'2ch' if longm else '7ch'}) — รอ trigger…"
+        t_end, status, count = time.time() + (sec + 10.0), 0, 0
+        while time.time() < t_end:
+            time.sleep(0.1)
+            try:
+                with instrument_lock:
+                    st = instrument.read_registers(REG_LOG_STATUS, 2, functioncode=3)
+                status, count = st[0], st[1]
+                burst["msg"] = ("⏳ รอสัญญาณ (สั่ง signal ได้เลย)…" if count == 0
+                                else f"capturing… {count}/{samples}")
+            except Exception:
+                pass
+            if status == 2:
+                break
+        if count <= 0:
+            burst["msg"] = "⚠ หมดเวลา/ไม่พบ trigger"; return
+
+        rows, s = [], 0
+        while s < count:
+            ns   = min(win, count - s)
+            flat = s * nch
+            with instrument_lock:
+                regs = instrument.read_registers(LOG_BASE + flat, ns * nch, functioncode=3)
+            for k in range(ns):
+                b = k * nch
+                t = round((s + k) * 0.001, 4)
+                if longm:    # [V, qd] → schema 8 คอลัมน์: เติม qd(idx4) + V(idx6)
+                    V  = round(to_s16(regs[b + 0]) / 1000.0, 4)
+                    qd = round(to_s16(regs[b + 1]) / 1000.0, 6)
+                    rows.append((t, "", "", "", qd, "", V, ""))
+                else:
+                    v = [to_s16(regs[b + j]) / LOG_SCALE[j] for j in range(LOG_C)]
+                    rows.append((t, round(v[0], 6), round(v[1], 6), round(v[2], 6),
+                                 round(v[3], 6), round(v[4], 6), round(v[5], 4), round(v[6], 6)))
+            s += ns
+            burst["msg"] = f"reading… {s}/{count}"
+        path = _burst_save(rows)
+        burst["msg"] = f"💾 {len(rows)} rows ({'2ch 20s' if longm else '7ch'}) → logs/{os.path.basename(path)}"
+    except Exception as e:
+        burst["msg"] = f"⚠ {type(e).__name__}: {e}"
+        add_log("ERROR", "REC", f"burst: {e}")
+    finally:
+        burst["running"] = False
+
 # ─────────────────────────────────────────────────────────────────────────────
 #  READ THREAD
 # ─────────────────────────────────────────────────────────────────────────────
 RECONNECT_CD = 15.0
+_loop_cnt    = 0      # นับ loop สำหรับ throttle sys_mode read (เพิ่ม log rate)
 
 def read_loop():
-    global last_err, _poll_err_count, _poll_ok_count, connected, _reconnecting
+    global last_err, _poll_err_count, _poll_ok_count, connected, _reconnecting, _loop_cnt
     cerr = 0
     while True:
         if connected and instrument:
@@ -463,12 +676,16 @@ def read_loop():
                 cur  = to_s16(regs[4]) / 1000.0
                 refq = to_s16(regs[5]) / 100.0
 
-                # อ่าน sys_mode แยก (ไม่อยู่ใน block เดิม)
-                try:
-                    with instrument_lock:
-                        sm = instrument.read_registers(REG_SYS_MODE, 1, functioncode=3)
-                    sys_mode = sm[0]
-                except Exception:
+                # อ่าน sys_mode — throttle ทุก 10 loops (mode เปลี่ยนช้า) → เพิ่ม log rate
+                _loop_cnt += 1
+                if _loop_cnt % 10 == 1:
+                    try:
+                        with instrument_lock:
+                            sm = instrument.read_registers(REG_SYS_MODE, 1, functioncode=3)
+                        sys_mode = sm[0]
+                    except Exception:
+                        sys_mode = last_vals.get("sys_mode", 2)
+                else:
                     sys_mode = last_vals.get("sys_mode", 2)
 
                 # MODE_AUTO (1): override pos ด้วย REG_BS_POS (อัปเดตโดย firmware)
@@ -488,6 +705,15 @@ def read_loop():
                     data["ref_q"].append(refq)
                 last_vals.update(ref=ref, act=act, vin=vin, pos=pos, cur=cur,
                                  ref_q=refq, sys_mode=sys_mode)
+
+                # ── Lab4 recorder: เก็บ 1 แถวต่อ sample (SI; ref_qdd ว่าง) ──
+                if recorder["active"]:
+                    with recorder["lock"]:
+                        recorder["rows"].append(
+                            (round(tn, 4), round(refq, 6), round(pos, 6),
+                             round(ref, 6), round(act, 6), "",
+                             round(vin, 4), round(cur, 6)))
+
                 last_err = ""
                 if cerr >= 3: add_log("INFO","READ",f"Recovered after {cerr} errors")
                 cerr = 0; _poll_ok_count += 1
@@ -892,6 +1118,65 @@ app.layout = dbc.Container(fluid=True,
                                 "marginTop":"6px","textAlign":"center","minHeight":"14px"}),
             ]),
 
+            # ── Data Logging (Lab 4) → CSV / PNG ──────────────────────────
+            html.Div(style=CARD, children=[
+                dbc.Row([
+                    dbc.Col(html.Div("DATA LOGGING → CSV", style={**LBL,"marginBottom":"0"}),
+                            width="auto"),
+                    dbc.Col(html.Div(id="rec-live",
+                                     style={"color":C_REF,"fontSize":"10px","textAlign":"right",
+                                            "fontFamily":"monospace"}),
+                            style={"textAlign":"right"}),
+                ], align="center", className="mb-1"),
+                dbc.Input(id="in-rec-tag", type="text", value="E1",
+                          placeholder="experiment tag (เช่น E2_ff_on)…",
+                          style={**INP,"height":"28px","padding":"2px 8px","marginBottom":"6px"}),
+                dbc.Row([
+                    dbc.Col(html.Div("Poll/Log rate", style={**LBL,"marginBottom":"0",
+                                     "paddingTop":"5px"}), width=6),
+                    dbc.Col(dcc.Dropdown(id="dd-pollhz",
+                                options=[{"label":f"{h} Hz","value":h} for h in (15,30,50)],
+                                value=POLL_HZ, clearable=False,
+                                style={"backgroundColor":"#0f0f1a","color":"#000",
+                                       "fontSize":"12px"}), width=6),
+                ], align="center", className="g-1 mb-1"),
+                dbc.Row([
+                    dbc.Col(dbc.Button("● REC",  id="btn-rec",      color="danger",
+                                       size="sm", className="w-100"), width=6),
+                    dbc.Col(dbc.Button("■ Stop", id="btn-rec-stop", color="secondary",
+                                       size="sm", className="w-100"), width=6),
+                ], className="g-1 mb-1"),
+                dbc.Row([
+                    dbc.Col(dbc.Button("💾 Save CSV", id="btn-rec-save", color="success",
+                                       size="sm", className="w-100"), width=6),
+                    dbc.Col(dbc.Button("📷 Graphs",   id="btn-rec-png",  color="info",
+                                       size="sm", className="w-100"), width=6),
+                ], className="g-1"),
+                # ── 1kHz burst: เลือก trigger + duration (sync ตอน signal เริ่มจริง) ──
+                dbc.Row([
+                    dbc.Col([html.Div("Trigger", style={**LBL,"marginBottom":"0"}),
+                             dcc.Dropdown(id="dd-trig",
+                                 options=[{"label":"⚡ Immediate","value":0},
+                                          {"label":"📍 Wait ref_q","value":1},
+                                          {"label":"🔌 Wait Voltage","value":2}],
+                                 value=2, clearable=False,
+                                 style={"backgroundColor":"#0f0f1a","color":"#000",
+                                        "fontSize":"11px"})], width=7),
+                    dbc.Col([html.Div("Capture (s)", style={**LBL,"marginBottom":"0"}),
+                             dbc.Input(id="in-cap-sec", type="number", value=2.0,
+                                       step=0.5, min=0.1, max=20,
+                                       style={**INP,"height":"30px","padding":"2px 8px"})],
+                            width=5),
+                ], align="center", className="g-1 mt-1"),
+                dbc.Row([
+                    dbc.Col(dbc.Button("⚡ 1kHz Capture", id="btn-burst", color="warning",
+                                       size="sm", className="w-100"), width=12),
+                ], className="g-1 mt-1"),
+                html.Div(id="rec-status",
+                         style={"color":C_MUT,"fontSize":"11px","marginTop":"6px",
+                                "textAlign":"center","minHeight":"14px"}),
+            ]),
+
             # Mode Tabs
             html.Div(style={**CARD, "padding":"0"}, children=[
                 dbc.Tabs(id="mode-tabs", active_tab="main",
@@ -902,6 +1187,7 @@ app.layout = dbc.Container(fluid=True,
                     dbc.Tab(label="📍 Pos",      tab_id="pos"),
                     dbc.Tab(label="⛓ Cascade",  tab_id="cascade"),
                     dbc.Tab(label="🤖 P&P",      tab_id="pp"),
+                    dbc.Tab(label="⚡ V-Test",   tab_id="vt"),
                     dbc.Tab(label="🔧 Modbus",   tab_id="modbus"),
                 ]),
                 html.Div(id="mode-cfg-status",
@@ -1177,6 +1463,64 @@ app.layout = dbc.Container(fluid=True,
                     html.Div(id="pp-place-analysis",
                              children=[html.Div("—", style={"color":C_MUT,"fontSize":"10px",
                                                              "textAlign":"center"})]),
+                ]),
+            ]),
+
+            # V-Test tab (open-loop voltage excitation — Lab 1 ID)
+            html.Div(id="tab-vt", style={"display":"none"}, children=[
+                html.Div(style={**CARD,"borderColor":"#ff9f43","borderWidth":"2px"}, children=[
+                    html.Div("OPEN-LOOP VOLTAGE TEST (Lab 1 ID)",
+                             style={**LBL,"color":"#ff9f43","marginBottom":"6px"}),
+                    html.Div("⚠ จ่าย V ตรงเข้ามอเตอร์ (bypass controller) — selector ต้อง MANUAL, "
+                             "หุ่นจะหมุนอิสระ! กด ⚡1kHz Capture ก่อนแล้วค่อย Start",
+                             style={"color":"#ffd43b","fontSize":"10px","marginBottom":"8px"}),
+                    dbc.RadioItems(id="vt-wave",
+                        options=[{"label":"⟶ Step","value":"step"},
+                                 {"label":"〜 Sine","value":"sine"},
+                                 {"label":"📈 Chirp","value":"chirp"},
+                                 {"label":"🪜 Stair","value":"stair"}],
+                        value="step", inline=True,
+                        style={"fontSize":"12px","color":C_TXT,"marginBottom":"8px"},
+                        labelStyle={"marginRight":"10px"}),
+                    dbc.Row([
+                        dbc.Col([html.Div("Amplitude (V)", style=LBL),
+                                 dbc.Input(id="vt-amp", type="number", value=6.0, step=0.5,
+                                           min=-24, max=24,
+                                           style={**INP,"height":"28px","padding":"2px 8px"})], width=6),
+                        dbc.Col([html.Div("Offset (V)", style=LBL),
+                                 dbc.Input(id="vt-off", type="number", value=0.0, step=0.5,
+                                           min=-24, max=24,
+                                           style={**INP,"height":"28px","padding":"2px 8px"})], width=6),
+                    ], className="g-1 mb-1"),
+                    dbc.Row([
+                        dbc.Col([html.Div("f0 (Hz)", style=LBL),
+                                 dbc.Input(id="vt-f0", type="number", value=1.0, step=0.5,
+                                           min=0, max=200,
+                                           style={**INP,"height":"28px","padding":"2px 8px"})], width=6),
+                        dbc.Col([html.Div("f1 (Hz, chirp)", style=LBL),
+                                 dbc.Input(id="vt-f1", type="number", value=20.0, step=1,
+                                           min=0, max=200,
+                                           style={**INP,"height":"28px","padding":"2px 8px"})], width=6),
+                    ], className="g-1 mb-1"),
+                    dbc.Row([
+                        dbc.Col([html.Div("Duration (ms)", style=LBL),
+                                 dbc.Input(id="vt-dur", type="number", value=2000, step=100,
+                                           min=100, max=10000,
+                                           style={**INP,"height":"28px","padding":"2px 8px"})], width=6),
+                        dbc.Col([html.Div("Stair steps", style=LBL),
+                                 dbc.Input(id="vt-steps", type="number", value=5, step=1,
+                                           min=1, max=20,
+                                           style={**INP,"height":"28px","padding":"2px 8px"})], width=6),
+                    ], className="g-1 mb-2"),
+                    dbc.Row([
+                        dbc.Col(dbc.Button("▶ Start V-Test", id="btn-vt-start",
+                                           color="warning", size="sm", className="w-100"), width=7),
+                        dbc.Col(dbc.Button("⏹ Stop", id="btn-vt-stop",
+                                           color="danger", size="sm", className="w-100"), width=5),
+                    ], className="g-1"),
+                    html.Div(id="vt-status",
+                             style={"color":"#ff9f43","fontSize":"11px","marginTop":"6px",
+                                    "textAlign":"center","minHeight":"14px"}),
                 ]),
             ]),
 
@@ -1468,20 +1812,22 @@ def on_connect(_, port):
     Output("tab-main","style"),    Output("tab-vel","style"),
     Output("tab-pos","style"),     Output("tab-cascade","style"),
     Output("tab-pp","style"),      Output("tab-modbus","style"),
+    Output("tab-vt","style"),
     Output("target-panel","style"),
     Output("mode-badge","children"), Output("mode-cfg-status","children"),
     Input("mode-tabs","active_tab"),
 )
 def switch_mode(tab):
     show = {"display":"block"}; hide = {"display":"none"}
-    # (tab-main, tab-vel, tab-pos, tab-cascade, tab-pp, tab-modbus, target-panel)
+    # (tab-main, tab-vel, tab-pos, tab-cascade, tab-pp, tab-modbus, tab-vt, target-panel)
     styles = {
-        "main":    (show, hide, hide, hide, hide, hide, show),
-        "vel":     (hide, show, hide, hide, hide, hide, hide),
-        "pos":     (hide, hide, show, hide, hide, hide, show),
-        "cascade": (hide, hide, hide, show, hide, hide, hide),
-        "pp":      (hide, hide, hide, hide, show, hide, hide),
-        "modbus":  (hide, hide, hide, hide, hide, show, hide),
+        "main":    (show, hide, hide, hide, hide, hide, hide, show),
+        "vel":     (hide, show, hide, hide, hide, hide, hide, hide),
+        "pos":     (hide, hide, show, hide, hide, hide, hide, show),
+        "cascade": (hide, hide, hide, show, hide, hide, hide, hide),
+        "pp":      (hide, hide, hide, hide, show, hide, hide, hide),
+        "modbus":  (hide, hide, hide, hide, hide, show, hide, hide),
+        "vt":      (hide, hide, hide, hide, hide, hide, show, hide),
     }
     badges = {
         "main":    ("🏠 MAIN",      C_TXT),
@@ -1490,6 +1836,7 @@ def switch_mode(tab):
         "cascade": ("⛓ CASCADE",   "#cc5de8"),
         "pp":      ("🤖 P&P",       "#ffd43b"),
         "modbus":  ("🔧 MODBUS",    "#ff9f43"),
+        "vt":      ("⚡ V-TEST",    "#ff9f43"),
     }
     s = styles.get(tab, styles["main"])
     btext, bcol = badges.get(tab, ("—", C_MUT))
@@ -1498,6 +1845,7 @@ def switch_mode(tab):
     cfg_msg = ""
     if connected:
         try:
+            write_vt_stop()   # หยุด open-loop V เสมอเมื่อสลับ tab (safety)
             if tab != "pp":   # P&P หยุดเองใน callback stop
                 write_run_flag(False)
             if tab == "vel":
@@ -1514,6 +1862,9 @@ def switch_mode(tab):
                 cfg_msg = (f"cascade | Pos Kp={last_vals.get('pos_kp',0):.2f} "
                            f"Ki={last_vals.get('pos_ki',0):.2f} "
                            f"Kd={last_vals.get('pos_kd',0):.2f} | ready")
+            elif tab == "vt":
+                write_pos_pid(0, 0, 0)   # velocity-only → หลังจบ test มอเตอร์เบรกนิ่ง ไม่วิ่งหา 0
+                cfg_msg = "open-loop V off | selector ต้อง MANUAL | กด ⚡ แล้ว Start"
             elif tab in ("main", "modbus"):
                 write_drive_mode(False)
                 cfg_msg = "cascade | stopped"
@@ -2269,6 +2620,93 @@ def on_ku_apply(_, store):
             f"✅ Applied  Kp={kp:.2f}  Ki={ki:.3f}  Kd={kd:.3f}",
             style={"color":C_ACT})
     return html.Span(f"Error: {r}", style={"color":C_REF})
+
+
+# ── Data logging (Lab 4): REC / Stop / Save CSV / Save Graphs ─────────────────
+@app.callback(
+    Output("rec-status", "children"),
+    Input("btn-rec",      "n_clicks"), Input("btn-rec-stop", "n_clicks"),
+    Input("btn-rec-save", "n_clicks"), Input("btn-rec-png",  "n_clicks"),
+    Input("btn-burst",    "n_clicks"),
+    State("in-rec-tag", "value"),
+    State("in-cap-sec", "value"), State("dd-trig", "value"),
+    prevent_initial_call=True,
+)
+def rec_buttons(n1, n2, n3, n4, n5, tag, cap_sec, trig_mode):
+    trig = dash.callback_context.triggered[0]["prop_id"].split(".")[0]
+    if trig == "btn-rec":
+        rec_start(tag)
+        return html.Span(f"● recording '{recorder['tag']}' …", style={"color": C_REF})
+    if trig == "btn-rec-stop":
+        rec_stop()
+        return html.Span(f"■ stopped — {len(recorder['rows'])} rows (กด Save CSV)",
+                         style={"color": C_VIN})
+    if trig == "btn-rec-save":
+        p, msg = rec_save_csv()
+        return (html.Span(f"💾 {msg} → logs/{os.path.basename(p)}", style={"color": C_ACT})
+                if p else html.Span(f"⚠ {msg}", style={"color": C_REF}))
+    if trig == "btn-rec-png":
+        p, msg = rec_save_graphs()
+        return (html.Span(f"📷 {msg} → logs/{os.path.basename(p)}", style={"color": C_ACT})
+                if p else html.Span(f"⚠ {msg}", style={"color": C_REF}))
+    if trig == "btn-burst":
+        if burst["running"]:
+            return html.Span("⚡ burst กำลังทำงาน…", style={"color": C_VIN})
+        sec  = float(cap_sec or 2.0)
+        tmod = int(trig_mode if trig_mode is not None else 2)
+        threading.Thread(target=burst_capture, args=(sec, tmod), daemon=True).start()
+        tlabel = {0: "ทันที", 1: "รอ ref_q", 2: "รอ V"}.get(tmod, "?")
+        return html.Span(f"⚡ armed {sec}s (trig: {tlabel}) — สั่ง signal เลย!",
+                         style={"color": C_VIN})
+    return dash.no_update
+
+
+@app.callback(Output("dd-pollhz", "value"), Input("dd-pollhz", "value"),
+              prevent_initial_call=True)
+def set_pollhz(hz):
+    global POLL_HZ
+    if hz:
+        POLL_HZ = int(hz)
+        add_log("INFO", "REC", f"poll/log rate → {POLL_HZ} Hz")
+    return hz
+
+
+@app.callback(Output("rec-live", "children"), Input("tick", "n_intervals"))
+def rec_live(_):
+    if burst["running"] or burst["msg"]:
+        return burst["msg"]
+    if recorder["active"]:
+        return f"● REC {len(recorder['rows'])}"
+    n = len(recorder["rows"])
+    return f"{n} buffered" if n else ""
+
+
+# ── V-Test (open-loop voltage excitation) start/stop ──────────────────────────
+@app.callback(
+    Output("vt-status", "children"),
+    Input("btn-vt-start", "n_clicks"), Input("btn-vt-stop", "n_clicks"),
+    State("vt-wave", "value"), State("vt-amp", "value"), State("vt-off", "value"),
+    State("vt-f0", "value"), State("vt-f1", "value"), State("vt-dur", "value"),
+    State("vt-steps", "value"),
+    prevent_initial_call=True,
+)
+def vt_buttons(n1, n2, wave, amp, off, f0, f1, dur, steps):
+    trig = dash.callback_context.triggered[0]["prop_id"].split(".")[0]
+    if trig == "btn-vt-stop":
+        write_vt_stop()
+        return html.Span("⏹ stopped", style={"color": C_MUT})
+    # auto-clear E-Stop ก่อนเริ่ม (กัน PA5/PC13 floating ทำ ESTOP ค้าง) — bench testing
+    try:
+        with instrument_lock:
+            instrument.write_register(REG_ESTOP, 0, functioncode=6)
+    except Exception:
+        pass
+    mode = VT_CODES.get(wave, 1)
+    r = write_vt(mode, amp or 0, off or 0, f0 or 0, f1 or 0, dur or 1000, steps or 1)
+    if r == "ok":
+        return html.Span(f"▶ {wave}: amp={amp}V off={off}V f0={f0}Hz "
+                         f"f1={f1}Hz dur={dur}ms", style={"color": "#ff9f43"})
+    return html.Span(f"⚠ {r}", style={"color": C_REF})
 
 
 # ─────────────────────────────────────────────────────────────────────────────

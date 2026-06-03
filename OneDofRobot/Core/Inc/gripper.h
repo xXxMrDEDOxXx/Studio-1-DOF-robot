@@ -1,7 +1,7 @@
 /*
  * gripper.h
  *
- *  Gripper Driver — pneumatic, active-LOW control + reed-switch feedback
+ *  Gripper Driver — pneumatic state machine + reed-switch feedback
  * ─────────────────────────────────────────────────────────────────────────────
  *  Control outputs (main.h labels, active LOW = LOW สั่งทำงาน):
  *    ARM up/down  = gripper_u_d  (PC4)
@@ -31,16 +31,23 @@
 #include "main.h"
 #include <stdint.h>
 
-/* ── Active levels (สลับได้ถ้าทิศกลับ) ───────────────────────────────────── */
-#define GRIP_ARM_DOWN_LVL   GPIO_PIN_RESET   /* LOW = down */
-#define GRIP_ARM_UP_LVL     GPIO_PIN_SET     /* HIGH = up  */
-#define GRIP_JAW_CLOSE_LVL  GPIO_PIN_RESET   /* LOW = close */
-#define GRIP_JAW_OPEN_LVL   GPIO_PIN_SET     /* HIGH = open */
+/* ── Output backend ─────────────────────────────────────────────────────────
+ *  1 = command external relay node via CAN bus (ProtocolSpec.pdf Node 0x10)
+ *  0 = drive the old local GPIO outputs directly                         */
+#define GRIPPER_OUTPUT_BACKEND_CAN  0U
+
+/* ── Active levels (ใช้เมื่อ GRIPPER_OUTPUT_BACKEND_CAN = 0) — สลับแล้ว (ทิศกลับ) ── */
+#define GRIP_ARM_DOWN_LVL   GPIO_PIN_SET     /* HIGH = down */
+#define GRIP_ARM_UP_LVL     GPIO_PIN_RESET   /* LOW = up   */
+#define GRIP_JAW_CLOSE_LVL  GPIO_PIN_SET     /* HIGH = close */
+#define GRIP_JAW_OPEN_LVL   GPIO_PIN_RESET   /* LOW = open  */
 #define REED_ON_STATE       GPIO_PIN_RESET   /* reed triggered = LOW (สลับถ้ากลับ) */
 
-/* ── Timing: timeout fallback ถ้า reed ไม่ trigger [ms] ──────────────────── */
-#define GRIP_ARM_MS   800U   /* เวลาสูงสุดรอแขนถึงที่ (down/up)  */
-#define GRIP_ACT_MS   600U   /* เวลาสูงสุดรอ jaw (close/open)    */
+/* ── Timing: แต่ละ step ใช้เวลาคงที่ (จับเวลาตรงๆ ไม่พึ่ง reed ที่ไม่เสถียร) [ms]
+ *  ลำดับ: arm ลง → คีบ/ปล่อย → arm ขึ้น  (reed เหลือไว้แค่ telemetry REG_BS_REED) */
+#define GRIP_DOWN_MS   500U   /* แขนลง       (0.5 s)  */
+#define GRIP_ACT_MS    500U   /* คีบ/ปล่อย    (0.5 s)  */
+#define GRIP_UP_MS     500U   /* แขนขึ้น      (0.5 s)  */
 
 /* ── Manual command codes (REG_BS_GRIPPER_MAN 0x02) ──────────────────────── */
 #define GRIP_MAN_UP     0U

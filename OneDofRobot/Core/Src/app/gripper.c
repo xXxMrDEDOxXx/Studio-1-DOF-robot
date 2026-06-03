@@ -13,6 +13,9 @@
 
 #include "gripper.h"
 #include "base_system.h"   /* REG_BS_GRIPPER_EN, REG_BS_GRIPPER_MAN, REG_BS_REED */
+#if GRIPPER_OUTPUT_BACKEND_CAN
+#include "can_gripper.h"
+#endif
 
 #ifndef REG_BS_GRIPPER_MAN
 #define REG_BS_GRIPPER_MAN  0x02
@@ -35,11 +38,18 @@ static uint16_t g_man_prev  = 0xFFFF;   /* prev REG_BS_GRIPPER_MAN (edge detect)
 void Gripper_SetArm(uint8_t down)  { g_arm_down  = down  ? 1U : 0U; }
 void Gripper_SetJaw(uint8_t close) { g_jaw_close = close ? 1U : 0U; }
 
-/* ── Low-level control (active LOW) ──────────────────────────────────────── */
+/* ── Low-level control ───────────────────────────────────────────────────── */
+#if GRIPPER_OUTPUT_BACKEND_CAN
+void Gripper_ArmDown(void) { CanGripper_SetArmDown(1U); }
+void Gripper_ArmUp(void)   { CanGripper_SetArmDown(0U); }
+void Gripper_JawClose(void){ CanGripper_SetJawClose(1U); }
+void Gripper_JawOpen(void) { CanGripper_SetJawClose(0U); }
+#else
 void Gripper_ArmDown(void) { HAL_GPIO_WritePin(gripper_u_d_GPIO_Port, gripper_u_d_Pin, GRIP_ARM_DOWN_LVL); }
 void Gripper_ArmUp(void)   { HAL_GPIO_WritePin(gripper_u_d_GPIO_Port, gripper_u_d_Pin, GRIP_ARM_UP_LVL);   }
 void Gripper_JawClose(void){ HAL_GPIO_WritePin(gripper_o_c_GPIO_Port, gripper_o_c_Pin, GRIP_JAW_CLOSE_LVL);}
 void Gripper_JawOpen(void) { HAL_GPIO_WritePin(gripper_o_c_GPIO_Port, gripper_o_c_Pin, GRIP_JAW_OPEN_LVL); }
+#endif
 
 /* ── Reed read (1 = triggered) ───────────────────────────────────────────── */
 uint8_t Gripper_ReedUp(void)    { return (HAL_GPIO_ReadPin(reed_up_GPIO_Port,    reed_up_Pin)    == REED_ON_STATE) ? 1U : 0U; }
@@ -113,34 +123,29 @@ void Gripper_Update(void)
 
     switch (g_state) {
 
-        /* ── แขนลง — รอ reed_down ── */
+        /* ── แขนลง — ค้าง GRIP_DOWN_MS (0.5s) ก่อนค่อยคีบ (กัน "ลงพร้อมหยิบ") ── */
         case G_SEQ_DOWN:
             Gripper_ArmDown();
-            if (Gripper_ReedDown() || (now - g_deadline >= GRIP_ARM_MS)) {
+            if (now - g_deadline >= GRIP_DOWN_MS) {
                 g_deadline = now;
                 g_state    = G_SEQ_ACT;
             }
             break;
 
-        /* ── jaw close/open — รอ reed ── */
+        /* ── jaw close/open — ค้าง GRIP_ACT_MS (0.5s) ให้คีบ/ปล่อยสุดก่อนยกขึ้น ── */
         case G_SEQ_ACT:
-            if (g_pick_mode) {
-                Gripper_JawClose();
-                if (Gripper_ReedClose() || (now - g_deadline >= GRIP_ACT_MS)) {
-                    g_deadline = now;  g_state = G_SEQ_UP;
-                }
-            } else {
-                Gripper_JawOpen();
-                if (Gripper_ReedOpen() || (now - g_deadline >= GRIP_ACT_MS)) {
-                    g_deadline = now;  g_state = G_SEQ_UP;
-                }
+            if (g_pick_mode) Gripper_JawClose();
+            else             Gripper_JawOpen();
+            if (now - g_deadline >= GRIP_ACT_MS) {
+                g_deadline = now;
+                g_state    = G_SEQ_UP;
             }
             break;
 
-        /* ── แขนขึ้น — รอ reed_up ── */
+        /* ── แขนขึ้น — ค้าง GRIP_UP_MS (0.5s) ── */
         case G_SEQ_UP:
             Gripper_ArmUp();
-            if (Gripper_ReedUp() || (now - g_deadline >= GRIP_ARM_MS)) {
+            if (now - g_deadline >= GRIP_UP_MS) {
                 /* sync latch กับผลลัพธ์ sequence: arm ขึ้น, jaw ตาม pick/place
                  * → IDLE จะ hold สถานะนี้ ไม่ดีดกลับ (เช่น pick แล้วไม่ปล่อย rod) */
                 g_arm_down  = 0;

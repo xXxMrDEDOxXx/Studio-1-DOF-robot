@@ -27,7 +27,8 @@
 extern KalmanFilter_t  hkf;           /* defined in cascade_control.c */
 extern volatile float  q_out;         /* actual position  [rad]        */
 extern volatile float  qd_out;        /* actual velocity  [rad/s]      */
-extern volatile float  monitor_V_in;  /* motor voltage magnitude [V]   */
+extern volatile float  monitor_V_in;      /* motor voltage magnitude [V]        */
+extern volatile float  monitor_V_signed;  /* motor voltage signed clamped [V]   */
 
 /* ─── Default values (fallback เมื่อ PC ยังไม่ได้เขียน register) ─────────────── */
 #define DASH_DEFAULT_SPEED      3.0f   /* rad/s          (velocity mode) */
@@ -108,7 +109,7 @@ static void _dash_stop_motor(void)
     /* ── Telemetry: ส่งข้อมูลปัจจุบันแม้จะหยุดแล้ว ── */
     modbus_registers[REG_REF_QD] = 0;
     modbus_registers[REG_QD_OUT] = (uint16_t)(int16_t)(qd_out          * 100.0f);
-    modbus_registers[REG_V_IN]   = (uint16_t)(int16_t)(monitor_V_in    * 100.0f);
+    modbus_registers[REG_V_IN]   = (uint16_t)(int16_t)(monitor_V_signed * 100.0f);  /* signed */
     modbus_registers[REG_Q_OUT]  = (uint16_t)(int16_t)(q_out           * 100.0f);
     modbus_registers[REG_EST_I]  = (uint16_t)(int16_t)(hkf.est_current * 1000.0f);
     modbus_registers[REG_REF_Q]  = 0;
@@ -263,7 +264,7 @@ void Dashboard_Update(void)
      * ─────────────────────────────────────────────────────────────────────*/
     modbus_registers[REG_REF_QD] = (uint16_t)(int16_t)(dash_ref_qd        * 100.0f);
     modbus_registers[REG_QD_OUT] = (uint16_t)(int16_t)(qd_out             * 100.0f);
-    modbus_registers[REG_V_IN]   = (uint16_t)(int16_t)(monitor_V_in       * 100.0f);
+    modbus_registers[REG_V_IN]   = (uint16_t)(int16_t)(monitor_V_signed   * 100.0f);  /* signed */
     modbus_registers[REG_Q_OUT]  = (uint16_t)(int16_t)(q_out              * 100.0f);
     modbus_registers[REG_EST_I]  = (uint16_t)(int16_t)(hkf.est_current    * 1000.0f);
     modbus_registers[REG_REF_Q]  = (uint16_t)(int16_t)(dash_ref_q         * 100.0f);

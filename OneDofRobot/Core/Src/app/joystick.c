@@ -85,6 +85,7 @@ static uint8_t btn_cnt[BTN_COUNT]      = {0};
 static uint8_t btn_stable[BTN_COUNT]   = {0};   /* current stable state: 1=pressed */
 static uint8_t btn_edge[BTN_COUNT]     = {0};   /* 1 = press-edge this tick (one-shot) */
 
+
 static void buttons_update(void)
 {
     uint8_t raw[BTN_COUNT];
@@ -214,25 +215,68 @@ uint8_t Joystick_Update(void)
 
     /* ── Button B: Gripper Pick / Place toggle ────────────────────────────*/
     if (btn_edge[BTN_B]) {
-        if (grip_toggle == 0U) {
-            modbus_registers[REG_BS_GRIPPER_SEQ] = 1;  /* Pick */
-            grip_toggle = 1;
-        } else {
-            modbus_registers[REG_BS_GRIPPER_SEQ] = 2;  /* Place */
-            grip_toggle = 0;
+            if (grip_toggle == 0U) {
+                Gripper_SetJaw(1);   /* สั่ง Jaw ให้หนีบ (Close) */
+                grip_toggle = 1;
+            } else {
+                Gripper_SetJaw(0);   /* สั่ง Jaw ให้อ้า (Open) */
+                grip_toggle = 0;
+            }
         }
-    }
-
     /* ── Button C: Set Home (ตั้ง home เฉยๆ — หุ่นต้องไม่ขยับ) ──────────────
      * zero encoder + sync KF + re-arm Septic ให้ hold ที่ home ใหม่
      * (ไม่งั้น point-mode Septic ยังถือ target เก่า → หุ่นวิ่งหลังกด C)        */
+    static uint32_t c_last_click_time = 0;
+    static uint8_t  c_waiting_for_double = 0;
+    uint32_t now = HAL_GetTick();
     if (btn_edge[BTN_C]) {
-        Homing_SetHome();               /* zero TIM2 encoder ที่ตำแหน่งปัจจุบัน */
-        Cascade_Control_Reset();        /* sync KF กับ encoder ที่เพิ่ง zero     */
-        joy_target_rad  = 0.0f;
-        joy_was_neutral = 1;
-        Septic_MoveTo(&joy_septic, 0.0f, 0.0f, JOY_POINT_MOVE_TIME);  /* hold ที่ 0 */
-    }
+            if (c_waiting_for_double && (now - c_last_click_time < 1000U)) {
+                /* ════════════════════════════════════════════════════
+                 * DOUBLE CLICK: วิ่งกลับไปที่ 0 (Move to 0)
+                 * ════════════════════════════════════════════════════ */
+                c_waiting_for_double = 0; // รีเซ็ตสถานะ
+
+                /* บังคับเข้า Point Mode (เหมือนปุ่ม K) เพื่อให้คำสั่ง Septic ทำงานได้
+                 * เผื่อผู้ใช้เผลอกดดับเบิ้ลคลิกตอนอยู่ใน Free Mode */
+                if (joy_mode == JOY_MODE_FREE) {
+                    joy_mode = JOY_MODE_POINT;
+                    modbus_registers[REG_POS_KP] = 1550;
+                    modbus_registers[REG_POS_KI] = 120;
+                    modbus_registers[REG_POS_KD] = 0;
+                    modbus_registers[REG_DRIVE_MODE] = 0;
+                    Cascade_Control_Reset();
+                    modbus_registers[REG_RUN] = 0;
+                    joy_prev_driving = 0;
+                }
+
+                joy_target_rad  = 0.0f;
+                joy_was_neutral = 1;
+
+                /* สร้าง S-curve Trajectory วิ่งจากตำแหน่งปัจจุบัน (q_out) ไปที่ 0 */
+                Septic_MoveTo(&joy_septic, q_out, 0.0f, JOY_POINT_MOVE_TIME);
+
+            } else {
+                /* เป็นการกดครั้งแรก (จดเวลาไว้ แล้วรอเช็คดับเบิ้ลคลิก) */
+                c_last_click_time = now;
+                c_waiting_for_double = 1;
+            }
+        }
+
+        /* ════════════════════════════════════════════════════
+         * SINGLE CLICK: Set Home (เมื่อหมดเวลา 300ms แล้วไม่ได้กดซ้ำ)
+         * ════════════════════════════════════════════════════ */
+        if (c_waiting_for_double && (now - c_last_click_time >= 300U)) {
+
+            c_waiting_for_double = 0; // รีเซ็ตสถานะ
+
+            Homing_SetHome();               /* zero TIM2 encoder ที่ตำแหน่งปัจจุบัน */
+            Cascade_Control_Reset();        /* sync KF กับ encoder ที่เพิ่ง zero     */
+            joy_target_rad  = 0.0f;
+            joy_was_neutral = 1;
+
+            /* สั่ง hold ตำแหน่งที่ 0 ทันที (หุ่นไม่ขยับ) */
+            Septic_MoveTo(&joy_septic, 0.0f, 0.0f, JOY_POINT_MOVE_TIME);
+        }
 
     /* ── Button D: Gripper arm Up / Down toggle ───────────────────────────
      * คุม arm ตรงๆ ผ่าน Gripper_SetArm() — ไม่เขียน REG_BS_GRIPPER_MAN (0x02)

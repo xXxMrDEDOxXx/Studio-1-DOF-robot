@@ -54,6 +54,9 @@ extern          float qdd_out;  /* actual accel    [rad/s²]*/
 #define DEG2RAD  (3.14159265f / 180.0f)
 #define RAD2DEG  (180.0f / 3.14159265f)
 
+/* ─── Anti-swing dwell: ถึง place แล้วรอ rod หยุดเหวี่ยงก่อนลงวาง [ms] ──────── */
+#define ANTI_SWING_MS  2000U
+
 /* ─── Private trajectory instance ───────────────────────────────────────────
  *  ใช้ Septic (7th-order) กับทุก move — jerk-continuous เนียนสุด
  *  state machine ทำทีละ move → instance เดียวพอ                              */
@@ -63,6 +66,7 @@ static Septic_Profile_t pp_septic;   /* time-scaled, จบใน TRAJ_MOVE_TIME
 static uint8_t   pp_state       = PP_IDLE;
 static uint8_t   pp_pair_idx    = 0;     /* current pair (0-based)          */
 static uint8_t   pp_pair_count  = 0;
+static uint32_t  pp_settle_t0   = 0;     /* timestamp เริ่ม anti-swing dwell */
 /* pp_dwell_start เลิกใช้ — dwell ใช้ Gripper_IsDone() (reed) แทน timer */
 
 /* ─── Decoded sequence (radians) ─────────────────────────────────────────── */
@@ -82,10 +86,11 @@ static float ref_j   = 0.0f;
  * ─────────────────────────────────────────────────────────────────────────────*/
 
 /* hole index → angle [rad]
- * base "+" index = CCW → คูณ BS_DIR_SIGN ให้ตรงทิศ firmware (firmware + = CW) */
+ *   magnitude = hole index, sign: + = CCW / − = CW  (ตาม base spec 0x12–0x21)
+ *   ใช้ signed idx ตรงๆ → รองรับ CCW/CW; BS_DIR_SIGN แปลงทิศ base(CCW+) → firmware(CW+) */
 static float _index_to_rad(int16_t idx)
 {
-    float deg = (float)(idx < 0 ? -idx : idx) * HOLE_STEP_DEG;
+    float deg = (float)idx * HOLE_STEP_DEG;   /* signed — ไม่ทิ้ง sign อีกแล้ว */
     return deg * DEG2RAD * BS_DIR_SIGN;
 }
 
@@ -233,8 +238,8 @@ void AutoMission_Update(void)
         case PP_IDLE:
 			_write_telemetry(TASK_IDLE);
 			Cascade_Control_Update(q_out, 0.0f);
-
-			break; /* กลับมาสั้นๆ แค่นี้พอครับ */
+			Gripper_Update();   /* base MANUAL tab gripper (0x02/0x03) ทำงานตอน AUTO idle ด้วย */
+			break;
 
         /* ════════════════════════════════════════════════════════════════════
          *  MOVE_PICK — Septic เดินไป pick position (เร็ว, ไม่มีของ)
@@ -278,6 +283,19 @@ void AutoMission_Update(void)
 
             if (!pp_septic.is_running) {
                 Cascade_Flush_VelIntegral();
+                pp_settle_t0 = HAL_GetTick();   /* เริ่มจับเวลา anti-swing */
+                _set_state(PP_SETTLE_PLACE);     /* รอ rod หยุดเหวี่ยงก่อนค่อยลงวาง */
+            }
+            break;
+
+        /* ════════════════════════════════════════════════════════════════════
+         *  SETTLE_PLACE — ถึง place แล้ว hold ตำแหน่ง รอ rod หยุดเหวี่ยง ~2s
+         *                 (แขนยังยกถือ rod อยู่) แล้วค่อยเริ่ม place sequence
+         * ════════════════════════════════════════════════════════════════════*/
+        case PP_SETTLE_PLACE:
+            Cascade_Control_Update(pp_place_rad[pp_pair_idx], 0.0f);
+            _write_telemetry(TASK_GO_PLACE);
+            if (HAL_GetTick() - pp_settle_t0 >= ANTI_SWING_MS) {
                 Gripper_Place();         /* เริ่ม place: arm↓ → jaw open → arm↑ */
                 _set_state(PP_DWELL_PLACE);
             }
@@ -318,6 +336,7 @@ void AutoMission_Update(void)
         case PP_DONE:
             _write_telemetry(TASK_IDLE);
             Cascade_Control_Update(q_out, 0.0f);
+            Gripper_Update();   /* manual gripper ยังสั่งได้หลังจบ mission */
             break;
 
         /* ════════════════════════════════════════════════════════════════════
@@ -371,6 +390,7 @@ void AutoMission_Update(void)
         case PP_GO_POINT_HOLD:
             _write_telemetry(TASK_IDLE);
             Cascade_Control_Update(pp_goto_target, 0.0f);
+            Gripper_Update();   /* manual gripper ยังสั่งได้ตอน hold */
             break;
 
         /* ════════════════════════════════════════════════════════════════════

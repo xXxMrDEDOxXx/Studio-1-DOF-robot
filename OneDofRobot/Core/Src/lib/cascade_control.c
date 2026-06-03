@@ -11,6 +11,7 @@
 #include "trajectory.h"
 #include "kalman_filter.h"
 #include "base_system.h"   /* modbus_registers[] */
+#include "datalog.h"       /* DataLog_Sample (1 kHz burst capture) */
 #include <math.h>
 
 // ---------------- ดึงค่าฮาร์ดแวร์จาก main.c ----------------
@@ -19,8 +20,9 @@ extern TIM_HandleTypeDef htim2; // QEI
 extern Encoder_t henc2;
 
 // ลบคำว่า extern ออก แล้วกำหนดค่าเริ่มต้นได้ตามปกติเลยครับ
-volatile float monitor_V_in = 0.0f;  /* magnitude สำหรับ display/telemetry (≥ 0) */
-static   float kf_V_in      = 0.0f;  /* SIGNED สำหรับ Kalman Filter              */
+volatile float monitor_V_in     = 0.0f;  /* magnitude สำหรับ display/telemetry (≥ 0)   */
+volatile float monitor_V_signed = 0.0f;  /* SIGNED clamped V สำหรับ telemetry/analysis */
+static   float kf_V_in          = 0.0f;  /* SIGNED สำหรับ Kalman Filter                */
 
 // ---------------- Private Variables (ตัวแปรภายใน) ----------------
 volatile float q_out = 0.0f;       // ตำแหน่งจริง
@@ -171,7 +173,8 @@ static void Motor_Drive(float V_in) {
     }
 
     if (V_in > MAX_VOLTAGE) V_in = MAX_VOLTAGE;
-    monitor_V_in = V_in;   /* magnitude เท่านั้น (ใช้แสดงผล/telemetry) */
+    monitor_V_in     = V_in;                                /* magnitude (display)         */
+    monitor_V_signed = (kf_V_in >= 0.0f) ? V_in : -V_in;    /* signed clamped (telemetry)  */
     uint32_t duty = (uint32_t)((V_in / MAX_VOLTAGE) * PWM_ARR_MAX);
 
     /* ── Deadband hysteresis ────────────────────────────────────────────────
@@ -362,6 +365,8 @@ void Cascade_Control_Update_FF(float ref_q, float ref_qd, float ref_qdd)
              *  pos_ctrl.Kp หน่วย [V/rad]   (เช่น Kp=10 → ±10V ต่อ 1 rad error)
              * ════════════════════════════════════════════════════════════ */
             Motor_Drive(pos_div_out);
+            DataLog_Sample(ref_q, q_out, ref_qd, qd_out, ref_qdd,
+                           monitor_V_signed, hkf.est_current);
             return;   /* ← ออกจาก function ทันที ไม่รัน velocity loop */
         }
 
@@ -426,6 +431,36 @@ void Cascade_Control_Update_FF(float ref_q, float ref_qd, float ref_qdd)
     /* 2-DOF: feedforward ล้วน (V_FF+V_acc+V_fric จาก reference สะอาด) + feedback (V_VEL) */
 
     Motor_Drive(V_VEL + V_FF + V_acc + V_fric);
+
+    /* 1 kHz burst capture (Lab 4) — เก็บเฉพาะตอน DataLog_Arm() */
+    DataLog_Sample(ref_q, q_out, ref_qd, qd_out, ref_qdd,
+                   monitor_V_signed, hkf.est_current);
+}
+
+/* ── Open-loop voltage drive (Lab 1 system ID) ───────────────────────────────
+ *  จ่าย V ตรงเข้ามอเตอร์ (ไม่มี control loop) + รัน KF observer ด้วย V ที่จ่าย
+ *  → ได้ q,qd estimate, เขียน dashboard telemetry, feed 1kHz logger
+ *    (logger: input=V[ch5], output q[ch1]/qd[ch3], ref=0)
+ * ─────────────────────────────────────────────────────────────────────────── */
+void Cascade_OpenLoopVolt(float V)
+{
+    Encoder_Update(&henc2);
+    float z = Encoder_GetPositionRad(&henc2);
+    KF_Update(&hkf, V, z);            /* observer ด้วย input ที่รู้ค่า (signed) */
+    q_out  = hkf.est_position;
+    qd_out = hkf.est_velocity;
+
+    Motor_Drive(V);                   /* apply (dir/clamp) → set monitor_V_signed */
+
+    /* dashboard telemetry (ให้กราฟ live อัปเดตระหว่างทดสอบ) */
+    modbus_registers[REG_REF_QD] = 0;
+    modbus_registers[REG_QD_OUT] = (uint16_t)(int16_t)(qd_out           * 100.0f);
+    modbus_registers[REG_V_IN]   = (uint16_t)(int16_t)(monitor_V_signed * 100.0f);
+    modbus_registers[REG_Q_OUT]  = (uint16_t)(int16_t)(q_out            * 100.0f);
+    modbus_registers[REG_EST_I]  = (uint16_t)(int16_t)(hkf.est_current  * 1000.0f);
+    modbus_registers[REG_REF_Q]  = 0;
+
+    DataLog_Sample(0.0f, q_out, 0.0f, qd_out, 0.0f, monitor_V_signed, hkf.est_current);
 }
 
 

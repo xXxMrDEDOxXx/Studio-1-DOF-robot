@@ -29,8 +29,11 @@
 #include "auto_mission.h"     /* Pick & Place Auto Mission (MODE_AUTO)          */
 #include "homing.h"           /* Force-Homing state machine (MODE_HOMING)       */
 #include "gripper.h"          /* Gripper: PC4=arm PC10=jaw + reed feedback      */
+#include "can_gripper.h"      /* CAN relay node backend for gripper outputs     */
 #include "test_mode.h"        /* Performance & Precision test (MODE_TEST)       */
 #include "joystick.h"         /* Funduino Joystick Shield (MODE_MANUAL only)    */
+#include "datalog.h"          /* 1 kHz burst data logger (Lab 4)                */
+#include "volt_test.h"        /* Open-loop voltage excitation (Lab 1 ID)        */
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -332,9 +335,12 @@ int main(void)
   Dashboard_Init();
   AutoMission_Init();
   Homing_Init();
+  CanGripper_Init();
   Gripper_Init();
   TestMode_Init();
   Joystick_Init();
+  DataLog_Init();
+  VoltTest_Init();
 
   current_system_mode            = MODE_HOMING;
   modbus_registers[REG_SYS_MODE] = MODE_HOMING;
@@ -353,6 +359,7 @@ int main(void)
     /* USER CODE BEGIN 3 */
 
       Heartbeat_Update();
+      CanGripper_Update();
 
       /* ── Selector Switch — อ่านตลอดเวลา, priority สูงสุด ──────────────
        *  TIM6 ISR จะบังคับ mode ตาม selector_mode ทุก tick
@@ -506,18 +513,18 @@ static void MX_FDCAN1_Init(void)
   hfdcan1.Init.ClockDivider = FDCAN_CLOCK_DIV1;
   hfdcan1.Init.FrameFormat = FDCAN_FRAME_CLASSIC;
   hfdcan1.Init.Mode = FDCAN_MODE_NORMAL;
-  hfdcan1.Init.AutoRetransmission = DISABLE;
+  hfdcan1.Init.AutoRetransmission = ENABLE;
   hfdcan1.Init.TransmitPause = DISABLE;
   hfdcan1.Init.ProtocolException = DISABLE;
-  hfdcan1.Init.NominalPrescaler = 16;
+  hfdcan1.Init.NominalPrescaler = 34;
   hfdcan1.Init.NominalSyncJumpWidth = 1;
-  hfdcan1.Init.NominalTimeSeg1 = 1;
-  hfdcan1.Init.NominalTimeSeg2 = 1;
+  hfdcan1.Init.NominalTimeSeg1 = 7;
+  hfdcan1.Init.NominalTimeSeg2 = 2;
   hfdcan1.Init.DataPrescaler = 1;
   hfdcan1.Init.DataSyncJumpWidth = 1;
   hfdcan1.Init.DataTimeSeg1 = 1;
   hfdcan1.Init.DataTimeSeg2 = 1;
-  hfdcan1.Init.StdFiltersNbr = 0;
+  hfdcan1.Init.StdFiltersNbr = 5;
   hfdcan1.Init.ExtFiltersNbr = 0;
   hfdcan1.Init.TxFifoQueueMode = FDCAN_TX_FIFO_OPERATION;
   if (HAL_FDCAN_Init(&hfdcan1) != HAL_OK)
@@ -769,7 +776,7 @@ static void MX_GPIO_Init(void)
   HAL_GPIO_WritePin(Motor_Dir_GPIO_Port, Motor_Dir_Pin, GPIO_PIN_RESET);
 
   /*Configure GPIO pin Output Level */
-  HAL_GPIO_WritePin(GPIOC, gripper_u_d_Pin|gripper_o_c_Pin, GPIO_PIN_SET);
+  HAL_GPIO_WritePin(GPIOC, gripper_u_d_Pin|gripper_o_c_Pin, GPIO_PIN_RESET);  /* arm↑ + jaw open = safe (polarity สลับ) */
 
   /*Configure GPIO pin : E_stop_Pin */
   GPIO_InitStruct.Pin = E_stop_Pin;
@@ -835,10 +842,9 @@ void HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin)
 			/* 1. เริ่มเบรกนุ่ม (hybrid) — ยังไม่ตัด MOE
 			 *    TIM6 ISR จะ decel ~150ms แล้วค่อยตัดไฟ. ไม่ Cascade_Control_Reset
 			 *    ที่นี่ เพราะต้องคง velocity estimate (KF) ไว้ให้เบรกได้             */
-			modbus_registers[REG_ESTOP] = 1;   /* บอก PC: E-Stop active */
-			modbus_registers[REG_RUN]   = 0;   /* หยุด Dashboard loop      */
-
-
+			modbus_registers[REG_ESTOP]  = 1;   /* บอก PC: E-Stop active */
+			modbus_registers[REG_RUN]    = 0;   /* หยุด Dashboard loop      */
+			modbus_registers[REG_VT_MODE] = 0;  /* หยุด open-loop volt test */
 
 			/* 2. clear mission state (hold ปลอดภัย + gripper abort) — ไม่แตะ KF */
 			AutoMission_Reset();
@@ -876,6 +882,9 @@ void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim)
     debug_op_mode  = (uint8_t)current_system_mode;
     debug_selector = (uint8_t)selector_mode;
     debug_estop    = (uint8_t)modbus_registers[REG_ESTOP];
+
+    /* 1 kHz data logger — handle arm/abort + sync status (Lab 4 burst) */
+    DataLog_Service();
 
     /* ══════════════════════════════════════════════════════════════════════
      *  Priority 1 (สูงสุด): Homing กำลังทำงานอยู่ — ห้ามแทรก
@@ -921,6 +930,14 @@ void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim)
         pending_auto_ticks = 0;
         pending_test_ticks = 0;
         auto_start_pending = 0;
+
+        /* ── Open-loop voltage test (Lab 1 ID) — bypass controller ──────────
+         * ทำงานเมื่อ REG_VT_MODE != 0 และไม่ ESTOP. จ่าย V ตรง + KF + 1kHz logger
+         * (joystick e-stop ปุ่ม A ไม่ทำงานช่วงนี้ — ใช้ปุ่มตู้ หรือ STOP บน dashboard) */
+        if (modbus_registers[REG_VT_MODE] != 0 && modbus_registers[REG_ESTOP] == 0) {
+            VoltTest_Update();
+            return;
+        }
 
         /* Joystick ก่อน — คืน 1 = joystick กำลัง drive motor → ข้าม Dashboard
          * (กัน joystick กับ dashboard/jog แย่งสั่งมอเตอร์)                 */

@@ -152,8 +152,30 @@
 /*    READ (STM32 → PC):                                                           */
 #define REG_PP_STATE        0x50  /* Current state (PP_IDLE…PP_DONE read-only)   */
 
-/* ── Array size (highest addr + 1 = 0x50+1 = 0x51 = 81) ────────────────────── */
-#define MODBUS_REG_COUNT    81
+/* ── DATA LOGGER (Lab 4 burst, 0x51–0x53) ───────────────────────────────────
+ *  buffer 1 kHz อ่านแยกที่ addr ≥ LOG_BASE_ADDR (0x4000) — ดู datalog.h        */
+#define REG_LOG_CTRL        0x51  /* WRITE: 1=arm/start  2=abort  (pulse → 0)    */
+#define REG_LOG_STATUS      0x52  /* READ:  0=idle 1=capturing 2=done            */
+#define REG_LOG_COUNT       0x53  /* READ:  samples captured                     */
+
+/* ── OPEN-LOOP VOLTAGE TEST (Lab 1 system ID, 0x54–0x5A) ─────────────────────
+ *  จ่าย V ตรงเข้ามอเตอร์ (bypass controller) เป็น signal ทดสอบ — ดู volt_test.h */
+#define REG_VT_MODE         0x54  /* 0=off 1=step 2=sine 3=chirp 4=stair (=run)  */
+#define REG_VT_AMP          0x55  /* amplitude  V × 100 (int16 signed)           */
+#define REG_VT_OFFSET       0x56  /* offset     V × 100 (int16 signed)           */
+#define REG_VT_F0           0x57  /* freq / chirp f0   Hz × 100                  */
+#define REG_VT_F1           0x58  /* chirp f1          Hz × 100                  */
+#define REG_VT_DUR          0x59  /* duration  ms  (chirp sweep / stair total)   */
+#define REG_VT_STEPS        0x5A  /* staircase number of steps                   */
+
+/* ── DATA LOGGER config (trigger-based capture, 0x5B–0x5C) ───────────────────
+ *  เลือก "อัดกี่ sample" + "trigger แบบไหน" → arm แล้วรอ signal เริ่มจริง (sync) */
+#define REG_LOG_LIMIT       0x5B  /* WRITE: จำนวน sample ที่จะอัด (1…LOG_N)       */
+#define REG_LOG_TRIG        0x5C  /* WRITE: 0=Immediate 1=Wait ref_q 2=Wait V     */
+#define REG_LOG_MODE        0x5D  /* WRITE: 0=full 7ch(2s) 1=long 2ch V,qd(20s)   */
+
+/* ── Array size (highest addr + 1 = 0x5D+1 = 0x5E = 94) ────────────────────── */
+#define MODBUS_REG_COUNT    94
 
 /* ─────────────────────────────────────────────────────────────────────────────
  *  System Mode

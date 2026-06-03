@@ -35,8 +35,9 @@ Core/Src/main.o: ../Core/Src/main.c ../Core/Inc/main.h \
  ../Core/Inc/base_system.h ../Core/Inc/cascade_control.h \
  ../Core/Inc/main.h ../Core/Inc/trajectory.h ../Core/Inc/encoder.h \
  ../Core/Inc/encoder.h ../Core/Inc/dashboard.h ../Core/Inc/auto_mission.h \
- ../Core/Inc/homing.h ../Core/Inc/gripper.h ../Core/Inc/test_mode.h \
- ../Core/Inc/joystick.h
+ ../Core/Inc/homing.h ../Core/Inc/gripper.h ../Core/Inc/can_gripper.h \
+ ../Core/Inc/test_mode.h ../Core/Inc/joystick.h ../Core/Inc/datalog.h \
+ ../Core/Inc/volt_test.h
 ../Core/Inc/main.h:
 ../Drivers/STM32G4xx_HAL_Driver/Inc/stm32g4xx_hal.h:
 ../Core/Inc/stm32g4xx_hal_conf.h:
@@ -81,5 +82,8 @@ Core/Src/main.o: ../Core/Src/main.c ../Core/Inc/main.h \
 ../Core/Inc/auto_mission.h:
 ../Core/Inc/homing.h:
 ../Core/Inc/gripper.h:
+../Core/Inc/can_gripper.h:
 ../Core/Inc/test_mode.h:
 ../Core/Inc/joystick.h:
+../Core/Inc/datalog.h:
+../Core/Inc/volt_test.h:

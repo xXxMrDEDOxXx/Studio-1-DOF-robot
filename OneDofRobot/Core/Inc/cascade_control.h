@@ -32,7 +32,8 @@ extern float          target_q;       // ตำแหน่งเป้าหม
 extern float          target_qd;      // ความเร็วเป้าหมาย (Radian/s) สำหรับ Trajectory
 extern volatile float q_out;          // ตำแหน่งจริง (volatile สำหรับ CubeMonitor)
 extern volatile float qd_out;         // ความเร็วจริง จาก KF (volatile สำหรับ CubeMonitor)
-extern volatile float monitor_V_in;   // แรงดันที่สั่ง motor (volatile สำหรับ CubeMonitor)
+extern volatile float monitor_V_in;     // แรงดัน magnitude (display)
+extern volatile float monitor_V_signed;  // แรงดัน signed clamped (telemetry/analysis)
 
 // ---------------- Public Function Prototypes ----------------
 void Cascade_Control_Init(void);
@@ -46,5 +47,8 @@ void Cascade_Control_Update_FF(float ref_q, float ref_qd, float ref_qdd);
  */
 void Cascade_Control_Reset(void);
 void Cascade_Flush_VelIntegral(void);
+
+/* Open-loop voltage drive (bypass controller) — Lab 1 parameter estimation */
+void Cascade_OpenLoopVolt(float V);
 
 #endif /* CASCADE_CONTROL_H_ */

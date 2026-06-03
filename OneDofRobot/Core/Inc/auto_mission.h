@@ -56,6 +56,7 @@
 #define PP_GO_POINT       8   /* กำลังเดินไป P2P target (Septic)                 */
 #define PP_GO_POINT_HOLD  9   /* ถึง target แล้ว holding                         */
 #define PP_GO_HOME        10  /* BS Go Home: control กลับ position 0 (ไม่ force seek) */
+#define PP_SETTLE_PLACE   11  /* ถึง place แล้ว รอ rod หยุดเหวี่ยง ~2s ก่อนลงวาง   */
 
 /* ─────────────────────────────────────────────────────────────────────────────
  *  API

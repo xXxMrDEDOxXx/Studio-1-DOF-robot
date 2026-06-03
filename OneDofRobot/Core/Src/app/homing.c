@@ -139,6 +139,7 @@ void Homing_Update(void)
     debug_zone_count = zone_count;
 
     hom_ticks++;
+    Encoder_Update(&henc2);
 
     switch (hom_state) {
 
@@ -167,7 +168,7 @@ void Homing_Update(void)
 				settle_ticks++;
 				break;   /* รอนิ่งก่อน ไม่ขับมอเตอร์ */
 			}
-            Encoder_Update(&henc2);
+
             /* จับตำแหน่งเริ่ม seek ครั้งเดียว → วัดระยะหมุนจนเจอ sensor */
             if (!seek_armed) {
                 seek_start_pos = henc2.position_raw;
@@ -203,7 +204,7 @@ void Homing_Update(void)
                 break;   /* รอนิ่งก่อน ไม่ขับมอเตอร์ */
             }
             raw_drive(HOMING_LEAVE_DUTY);
-            Encoder_Update(&henc2);
+
 
             if (HAL_GPIO_ReadPin(Homing_signal_GPIO_Port, Homing_signal_Pin)
                     == GPIO_PIN_RESET) {
@@ -230,7 +231,7 @@ void Homing_Update(void)
 				break;   /* รอนิ่งก่อน ไม่ขับมอเตอร์ */
         	}
 			raw_drive_opposite(HOMING_RETURN_DUTY);
-            Encoder_Update(&henc2);
+
 
             int32_t pos  = henc2.position_raw;
             uint8_t done = (zone_count >= 0)
