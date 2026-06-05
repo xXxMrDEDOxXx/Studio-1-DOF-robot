@@ -5,7 +5,7 @@
 ../Core/Src/app/homing.c:90:13:zero_encoder	1
 ../Core/Src/app/homing.c:105:13:homing_fail_recover	1
 ../Core/Src/app/homing.c:119:6:Homing_Init	1
-../Core/Src/app/homing.c:129:6:Homing_Start	2
-../Core/Src/app/homing.c:151:6:Homing_Update	27
-../Core/Src/app/homing.c:323:6:Homing_SetHome	1
-../Core/Src/app/homing.c:328:9:Homing_IsDone	3
+../Core/Src/app/homing.c:139:6:Homing_Start	2
+../Core/Src/app/homing.c:161:6:Homing_Update	27
+../Core/Src/app/homing.c:333:6:Homing_SetHome	1
+../Core/Src/app/homing.c:338:9:Homing_IsDone	3

@@ -118,6 +118,16 @@ static void homing_fail_recover(void)
 
 void Homing_Init(void)
 {
+    /* ── prox NJK-5002A = PNP-NO: off-flag = output เปิด (high-Z) → ขาลอย ──
+     *  MX_GPIO_Init ตั้ง PA4 = NOPULL → off-flag อ่านมั่ว → homing เด้ง/ข้าม state
+     *  ใส่ pull-down override (regen-safe เพราะอยู่ใน USER code): off-flag = LOW นิ่ง,
+     *  on-flag = PNP ดัน HIGH → ตรงกับ HOMING_SIGNAL_ON = SET                    */
+    GPIO_InitTypeDef g = {0};
+    g.Pin  = Homing_signal_Pin;
+    g.Mode = GPIO_MODE_INPUT;
+    g.Pull = GPIO_PULLDOWN;
+    HAL_GPIO_Init(Homing_signal_GPIO_Port, &g);
+
     hom_state    = H_IDLE;
     hom_ticks    = 0;
     zone_count   = 0;
