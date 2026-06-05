@@ -62,10 +62,10 @@ KalmanFilter_t hkf;
                               * = 27V spike ทุกครั้งเปลี่ยนทิศ (ดู troubleshoot) */
 
 // ---------------- Setup PID Controllers ----------------
-PID_Controller pos_ctrl = { .integral = 0.0f, .prev_error = 0.0f, .integral_limit = 10.0f };
+PID_Controller pos_ctrl = { .integral = 0.0f, .prev_error = 0.0f, .integral_limit = 15.0f };
 /* integral_limit = 10 ใช้ได้ทั้ง cascade mode (output เป็น rad/s clamp ที่ ±10 อยู่แล้ว)
  * และ direct drive mode (output เป็น V — 10V ต่ำกว่า MAX_VOLTAGE 24V อย่างปลอดภัย)              */
-PID_Controller vel_ctrl = { .integral = 0.0f, .prev_error = 0.0f, .integral_limit = 6.0f };
+PID_Controller vel_ctrl = { .integral = 0.0f, .prev_error = 0.0f, .integral_limit = 8.0f };
 /* integral_limit = 6.0f (ไม่ใช่ MAX_VOLTAGE):
  *   จำกัด Ki × integral ≤ ±6V → ป้องกัน integral windup ที่ทำให้ bang-bang saturate
  *   Anti-windup check อยู่ใน calculate_pid() → ไม่ต้อง flush integral ด้วยตนเอง
