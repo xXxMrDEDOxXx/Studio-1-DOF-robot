@@ -17,6 +17,7 @@
 extern TIM_HandleTypeDef htim1; // PWM PA8
 extern TIM_HandleTypeDef htim2; // QEI
 extern Encoder_t henc2;
+extern volatile uint8_t analysis_mode;   /* main.c — analysis sub-mode (ใช้ AUTO gains) */
 
 // ลบคำว่า extern ออก แล้วกำหนดค่าเริ่มต้นได้ตามปกติเลยครับ
 volatile float monitor_V_in     = 0.0f;  /* magnitude สำหรับ display/telemetry (≥ 0)   */
@@ -304,7 +305,7 @@ void Cascade_Control_Update_FF(float ref_q, float ref_qd, float ref_qdd)
      *    อื่นๆ (AUTO/TEST) → ค่า fixed ในโค้ด (จูนมาแล้ว, dashboard ทับไม่ได้)
      *  → ป้องกัน gain ที่ tune ใน MANUAL หลุดไปใช้ตอน AUTO
      * ════════════════════════════════════════════════════════════ */
-    if (current_system_mode == MODE_MANUAL) {
+    if (current_system_mode == MODE_MANUAL && analysis_mode != 1) {
         vel_ctrl.Kp = (float)(int16_t)modbus_registers[REG_VEL_KP] / 100.0f;
         vel_ctrl.Ki = (float)(int16_t)modbus_registers[REG_VEL_KI] / 100.0f;
         vel_ctrl.Kd = (float)(int16_t)modbus_registers[REG_VEL_KD] / 100.0f;

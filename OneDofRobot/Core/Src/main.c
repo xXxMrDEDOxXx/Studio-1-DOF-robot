@@ -93,7 +93,18 @@ volatile SystemMode_t   current_system_mode = MODE_HOMING;    /* actual mode    
 
 uint8_t rx_buffer[128];
 
-DMA_HandleTypeDef hdma_usart1_tx;   /* USART1 TX DMA (stream → MATLAB 1kHz) */
+DMA_HandleTypeDef hdma_usart1_tx;   /* USART1 TX DMA (legacy, ไม่ใช้แล้ว — ย้ายไป USART2) */
+
+/* ── Analysis sub-mode (แก้ผ่าน CubeIDE debugger / Live Expressions เท่านั้น) ──
+ *  0 = DASHBOARD (default) → MANUAL ใช้ Modbus ปกติ (dashboard.py)
+ *  1 = ANALYSIS           → MANUAL stream CSV ออก USART2 แทน Modbus (เก็บค่า sys ID)
+ *  ทำงานเฉพาะ MODE_MANUAL — โหมดอื่น (AUTO/HOMING) ไม่สน                            */
+volatile uint8_t analysis_mode = 0;
+
+/* ── สั่ง move ใน analysis mode ผ่าน Live Expressions ────────────────────────
+ *  เขียน cmd_deg = องศาเป้าหมาย → หุ่นวิ่งไป (Septic move + cascade AUTO gains)
+ *  ใช้สำหรับเก็บ step/move response ทำ sys ID                                   */
+volatile float cmd_deg = 0.0f;
 
 
 /* USER CODE END PV */
@@ -112,6 +123,7 @@ static void MX_USART1_UART_Init(void);
 //Update_Telemetry_To_PC(void);
 static void Stream_Update(void);   /* USART1 stream → MATLAB (นิยามใน USER CODE 4) */
 static void Stream_DMA_Init(void); /* USART1 TX DMA init */
+static void Analysis_Control(void); /* analysis mode: สั่ง move ตาม cmd_deg */
 /* USER CODE END PFP */
 
 /* Private user code ---------------------------------------------------------*/
@@ -891,6 +903,24 @@ static void MX_GPIO_Init(void)
  *  DMA1_Channel2 + DMA_REQUEST_USART1_TX (ADC ใช้ Ch1 อยู่ → ใช้ Ch2)            */
 extern volatile float ref_j;   /* jerk-ref (auto_mission.c) */
 
+/* ── Analysis mode controller: สั่ง move ตาม cmd_deg (Live Expressions) ──────
+ *  เขียน cmd_deg → Septic move ไปองศานั้น + cascade (AUTO gains). เก็บ response sys ID */
+static void Analysis_Control(void)
+{
+    static Septic_Profile_t an_septic;
+    static float   an_prev = 0.0f;
+    static uint8_t an_init = 0;
+    if (!an_init) { Septic_Init(&an_septic); an_prev = cmd_deg; an_init = 1; }
+
+    if (cmd_deg != an_prev) {                       /* เป้าเปลี่ยน → เริ่ม move */
+        Septic_MoveTo(&an_septic, q_out, cmd_deg * (3.14159265f / 180.0f), TRAJ_MOVE_TIME);
+        an_prev = cmd_deg;
+    }
+    float rq, rqd, rqdd, rj;
+    Septic_Update(&an_septic, &rq, &rqd, &rqdd, &rj);
+    Cascade_Control_Update_FF(rq, rqd, rqdd);
+}
+
 static void Stream_DMA_Init(void)
 {
     __HAL_RCC_DMA1_CLK_ENABLE();
@@ -920,21 +950,40 @@ static void Stream_DMA_Init(void)
 void DMA1_Channel2_IRQHandler(void) { HAL_DMA_IRQHandler(&hdma_usart1_tx); }
 void USART1_IRQHandler(void)        { HAL_UART_IRQHandler(&huart1); }
 
+/* ── ANALYSIS stream → USART2 (COM9 ST-Link VCP, 230400 8-E-1) — BINARY 8 ช่อง @ 1kHz
+ *  MANUAL + analysis_mode==1 → frame 18 byte = [0xAA 0x55] + 8×int16 LE (signed = มีทิศ)
+ *  8 ช่อง ASCII ไม่พอ bandwidth 230400 → ใช้ binary (18 byte × 1000 = 18kB/s พอดี)
+ *  Simulink: Serial Configuration (Parity=Even) + Serial Receive (Header [170 85], int16, 8)
+ *  คอลัมน์: q_ref qd_ref qdd_ref jerk q_out qd_out qdd_out V
+ *  scale: q,qd,V ×1000 | qdd ×100 | jerk ×10  (Simulink หารกลับ)                  */
+static inline int16_t sat16(float x) {
+    if (x >  32767.0f) return  32767;
+    if (x < -32768.0f) return -32768;
+    return (int16_t)x;
+}
+
 static void Stream_Update(void)
 {
-    static uint32_t last = 0;
-    if (HAL_GetTick() - last < 1U) return;              /* 1 kHz */
-    last = HAL_GetTick();
-    if (huart1.gState != HAL_UART_STATE_READY) return;  /* DMA ก่อนยังไม่เสร็จ → ข้าม sample */
+    if (current_system_mode != MODE_MANUAL || analysis_mode != 1) return;
 
-    static char buf[100];                               /* static: DMA อ่านระหว่าง main loop รันต่อ */
-    int n = snprintf(buf, sizeof(buf),
-        "%ld,%ld,%ld,%ld,%ld,%ld,%ld,%ld\r\n",
-        (long)(mon_q_ref  * 1000.0f), (long)(mon_qd_ref  * 1000.0f),
-        (long)(mon_qdd_ref* 1000.0f), (long)(ref_j       * 1000.0f),
-        (long)(mon_q_out  * 1000.0f), (long)(mon_qd_out  * 1000.0f),
-        (long)(mon_qdd_out* 1000.0f), (long)(mon_v_in    * 1000.0f));
-    if (n > 0) HAL_UART_Transmit_DMA(&huart1, (uint8_t *)buf, (uint16_t)n);
+    static uint32_t last = 0;
+    if (HAL_GetTick() - last < 1U) return;              /* 1 kHz (Ts = 0.001) */
+    last = HAL_GetTick();
+    if (huart2.gState != HAL_UART_STATE_READY) return;  /* กันชน Modbus/stream TX ก่อนหน้า */
+
+    int16_t v[8];
+    v[0] = sat16(mon_q_ref   * 1000.0f);  v[1] = sat16(mon_qd_ref  * 1000.0f);
+    v[2] = sat16(mon_qdd_ref *  100.0f);  v[3] = sat16(ref_j       *   10.0f);
+    v[4] = sat16(mon_q_out   * 1000.0f);  v[5] = sat16(mon_qd_out  * 1000.0f);
+    v[6] = sat16(mon_qdd_out *  100.0f);  v[7] = sat16(mon_v_in    * 1000.0f);
+
+    static uint8_t fr[18];                              /* static: IT อ่านระหว่าง main loop รันต่อ */
+    fr[0] = 0xAA; fr[1] = 0x55;
+    for (int i = 0; i < 8; i++) {
+        fr[2 + i*2] = (uint8_t)(v[i] & 0xFF);           /* little-endian */
+        fr[3 + i*2] = (uint8_t)((v[i] >> 8) & 0xFF);
+    }
+    HAL_UART_Transmit_IT(&huart2, fr, sizeof(fr));
 }
 
 void HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin)
@@ -1042,6 +1091,12 @@ void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim)
          * (joystick e-stop ปุ่ม A ไม่ทำงานช่วงนี้ — ใช้ปุ่มตู้ หรือ STOP บน dashboard) */
         if (modbus_registers[REG_VT_MODE] != 0 && modbus_registers[REG_ESTOP] == 0) {
             VoltTest_Update();
+            return;
+        }
+
+        /* ── Analysis mode: สั่ง move ผ่าน cmd_deg (Live Expressions) → sys ID ── */
+        if (analysis_mode == 1 && modbus_registers[REG_ESTOP] == 0) {
+            Analysis_Control();
             return;
         }
 
