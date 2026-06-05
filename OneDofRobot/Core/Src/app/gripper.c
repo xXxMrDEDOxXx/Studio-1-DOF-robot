@@ -54,8 +54,9 @@ void Gripper_JawOpen(void) { HAL_GPIO_WritePin(gripper_o_c_GPIO_Port, gripper_o_
 /* ── Reed read (1 = triggered) ───────────────────────────────────────────── */
 uint8_t Gripper_ReedUp(void)    { return (HAL_GPIO_ReadPin(reed_up_GPIO_Port,    reed_up_Pin)    == REED_ON_STATE) ? 1U : 0U; }
 uint8_t Gripper_ReedDown(void)  { return (HAL_GPIO_ReadPin(reed_down_GPIO_Port,  reed_down_Pin)  == REED_ON_STATE) ? 1U : 0U; }
-uint8_t Gripper_ReedOpen(void)  { return (HAL_GPIO_ReadPin(reed_open_GPIO_Port,  reed_open_Pin)  == REED_ON_STATE) ? 1U : 0U; }
-uint8_t Gripper_ReedClose(void) { return (HAL_GPIO_ReadPin(reed_close_GPIO_Port, reed_close_Pin) == REED_ON_STATE) ? 1U : 0U; }
+/* reed_open + reed_close รวมเป็น pin เดียว (reed_open_close PB4) — open=active, close=inactive */
+uint8_t Gripper_ReedOpen(void)  { return (HAL_GPIO_ReadPin(reed_open_close_GPIO_Port, reed_open_close_Pin) == REED_ON_STATE) ? 1U : 0U; }
+uint8_t Gripper_ReedClose(void) { return (HAL_GPIO_ReadPin(reed_open_close_GPIO_Port, reed_open_close_Pin) != REED_ON_STATE) ? 1U : 0U; }
 
 /* ── Update REG_BS_REED (firmware → PC) ──────────────────────────────────── */
 static void _update_reed_reg(void)

@@ -64,12 +64,15 @@ UART_HandleTypeDef huart1;
 UART_HandleTypeDef huart2;
 
 /* USER CODE BEGIN PV */
-
+int reed_up = 0;
+int reed_down = 0;
+int reed_close_open = 0;
 /* ── Internal Temperature Sensor ─────────────────────────────────────────
  * ดูค่าได้ใน Live Expressions: chip_temp_C
  * G474 internal sensor: ADC1 CH16, cal @ VDDA=3.0V
  * ───────────────────────────────────────────────────────────────────────*/
 volatile float chip_temp_C = 0.0f;
+
 
 /* ── Live Expressions: operating mode & emergency ────────────────────────
  * ดูค่าใน Live Expressions:
@@ -375,7 +378,9 @@ int main(void)
           last_temp_ms = now_ms;
           TempSensor_Update();
       }
-
+      reed_up =  HAL_GPIO_ReadPin(GPIOC,GPIO_PIN_7);
+      reed_down = HAL_GPIO_ReadPin(GPIOA,GPIO_PIN_9);
+      reed_close_open = HAL_GPIO_ReadPin(GPIOB,GPIO_PIN_4);
   }
   /* USER CODE END 3 */
 }
@@ -839,22 +844,20 @@ static void MX_GPIO_Init(void)
   GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
   HAL_GPIO_Init(GPIOC, &GPIO_InitStruct);
 
-  /*Configure GPIO pins : Homing_signal_Pin A_Pin B_Pin C_Pin
-                           reed_down_Pin */
-  GPIO_InitStruct.Pin = Homing_signal_Pin|A_Pin|B_Pin|C_Pin
-                          |reed_down_Pin;
+  /*Configure GPIO pins : Homing_signal_Pin A_Pin B_Pin C_Pin */
+  GPIO_InitStruct.Pin = Homing_signal_Pin|A_Pin|B_Pin|C_Pin;
   GPIO_InitStruct.Mode = GPIO_MODE_INPUT;
   GPIO_InitStruct.Pull = GPIO_NOPULL;
   HAL_GPIO_Init(GPIOA, &GPIO_InitStruct);
 
-  /*Configure GPIO pins : Manual_mode_Pin Auto_Mode_Pin */
-  GPIO_InitStruct.Pin = Manual_mode_Pin|Auto_Mode_Pin;
+  /*Configure GPIO pins : Manual_mode_Pin Auto_Mode_Pin reed_open_close_Pin */
+  GPIO_InitStruct.Pin = Manual_mode_Pin|Auto_Mode_Pin|reed_open_close_Pin;
   GPIO_InitStruct.Mode = GPIO_MODE_INPUT;
   GPIO_InitStruct.Pull = GPIO_PULLUP;
   HAL_GPIO_Init(GPIOB, &GPIO_InitStruct);
 
-  /*Configure GPIO pins : K_Pin D_Pin reed_open_Pin reed_close_Pin */
-  GPIO_InitStruct.Pin = K_Pin|D_Pin|reed_open_Pin|reed_close_Pin;
+  /*Configure GPIO pins : K_Pin D_Pin */
+  GPIO_InitStruct.Pin = K_Pin|D_Pin;
   GPIO_InitStruct.Mode = GPIO_MODE_INPUT;
   GPIO_InitStruct.Pull = GPIO_NOPULL;
   HAL_GPIO_Init(GPIOB, &GPIO_InitStruct);
@@ -862,8 +865,14 @@ static void MX_GPIO_Init(void)
   /*Configure GPIO pin : reed_up_Pin */
   GPIO_InitStruct.Pin = reed_up_Pin;
   GPIO_InitStruct.Mode = GPIO_MODE_INPUT;
-  GPIO_InitStruct.Pull = GPIO_NOPULL;
+  GPIO_InitStruct.Pull = GPIO_PULLUP;
   HAL_GPIO_Init(reed_up_GPIO_Port, &GPIO_InitStruct);
+
+  /*Configure GPIO pin : reed_down_Pin */
+  GPIO_InitStruct.Pin = reed_down_Pin;
+  GPIO_InitStruct.Mode = GPIO_MODE_INPUT;
+  GPIO_InitStruct.Pull = GPIO_PULLUP;
+  HAL_GPIO_Init(reed_down_GPIO_Port, &GPIO_InitStruct);
 
   /* EXTI interrupt init*/
   HAL_NVIC_SetPriority(EXTI15_10_IRQn, 0, 0);

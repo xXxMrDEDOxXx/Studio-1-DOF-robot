@@ -27,7 +27,9 @@
       "Bash(grep -n \"BaudRate\" ../Core/Src/main.c)",
       "Bash(grep -nA3 \"Homing_signal_Pin\" Core/Src/main.c)",
       "Bash(sleep 1)",
-      "Bash(/c/ST/STM32CubeCLT_1.21.0/STM32CubeProgrammer/bin/STM32_Programmer_CLI.exe -c port=SWD mode=UR -w Debug/OneDofRobot.elf -v -rst)"
+      "Bash(/c/ST/STM32CubeCLT_1.21.0/STM32CubeProgrammer/bin/STM32_Programmer_CLI.exe -c port=SWD mode=UR -w Debug/OneDofRobot.elf -v -rst)",
+      "Bash(cd /c/Users/POND/OneDrive/Documents/GitHub/Studio-1-DOF-robot/OneDofRobot)",
+      "Bash(sed -n '54,58p' Core/Src/app/gripper.c)"
     ]
   }
 }

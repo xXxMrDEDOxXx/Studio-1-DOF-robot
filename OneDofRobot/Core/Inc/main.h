@@ -108,10 +108,8 @@ void Error_Handler(void);
 #define gripper_o_c_GPIO_Port GPIOC
 #define T_SWO_Pin GPIO_PIN_3
 #define T_SWO_GPIO_Port GPIOB
-#define reed_open_Pin GPIO_PIN_4
-#define reed_open_GPIO_Port GPIOB
-#define reed_close_Pin GPIO_PIN_9
-#define reed_close_GPIO_Port GPIOB
+#define reed_open_close_Pin GPIO_PIN_4
+#define reed_open_close_GPIO_Port GPIOB
 
 /* USER CODE BEGIN Private defines */
 
