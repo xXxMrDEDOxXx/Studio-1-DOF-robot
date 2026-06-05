@@ -23,7 +23,8 @@
       "Bash(grep -c '```' context.md)",
       "PowerShell(python -m pip install --quiet pypdf 2>&1)",
       "PowerShell(python -c \"import pypdf,sys; r=pypdf.PdfReader\\(r'C:\\\\Users\\\\POND\\\\AppData\\\\Local\\\\Temp\\\\Lab4 Control Integration.pdf'\\); print\\('PAGES',len\\(r.pages\\)\\)\")",
-      "PowerShell(& 'C:\\\\Program Files\\\\Git\\\\mingw64\\\\bin\\\\pdftotext.exe' -layout \"C:\\\\Users\\\\POND\\\\AppData\\\\Local\\\\Temp\\\\Lab4 Control Integration.pdf\" \"$env:TEMP\\\\lab4.txt\"; Get-Content \"$env:TEMP\\\\lab4.txt\" -Raw | Select-Object -First 1 | ForEach-Object { $_.Length })"
+      "PowerShell(& 'C:\\\\Program Files\\\\Git\\\\mingw64\\\\bin\\\\pdftotext.exe' -layout \"C:\\\\Users\\\\POND\\\\AppData\\\\Local\\\\Temp\\\\Lab4 Control Integration.pdf\" \"$env:TEMP\\\\lab4.txt\"; Get-Content \"$env:TEMP\\\\lab4.txt\" -Raw | Select-Object -First 1 | ForEach-Object { $_.Length })",
+      "Bash(grep -n \"BaudRate\" ../Core/Src/main.c)"
     ]
   }
 }

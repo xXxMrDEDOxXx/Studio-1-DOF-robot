@@ -1,7 +1,0 @@
-../Core/Src/lib/datalog.c:15:23:sat16	16	static
-../Core/Src/lib/datalog.c:21:6:DataLog_Init	4	static
-../Core/Src/lib/datalog.c:25:6:DataLog_Arm	4	static
-../Core/Src/lib/datalog.c:32:6:DataLog_Sample	56	static
-../Core/Src/lib/datalog.c:71:6:DataLog_Service	16	static
-../Core/Src/lib/datalog.c:96:10:DataLog_Total	4	static
-../Core/Src/lib/datalog.c:101:10:DataLog_ReadFlat	16	static

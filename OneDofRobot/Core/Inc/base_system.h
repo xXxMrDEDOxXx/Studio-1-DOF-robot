@@ -199,12 +199,6 @@ typedef enum {
 extern volatile SelectorMode_t selector_mode;       /* from physical switch  */
 extern volatile SystemMode_t   current_system_mode; /* actual running mode   */
 
-/* ── Hybrid E-Stop brake (definition ใน main.c) ─────────────────────────────
- *  trigger e-stop (ปุ่มตู้/จอย) set estop_brake_ticks โดยยังไม่ตัด MOE →
- *  TIM6 ISR เบรกนุ่ม (controlled) จน ticks หมด แล้วค่อยตัด MOE (de-energize)  */
-#define ESTOP_BRAKE_TICKS  150U   /* ~150 ms @ 1 kHz tick */
-extern volatile uint16_t estop_brake_ticks;
-
 /* ─────────────────────────────────────────────────────────────────────────────
  *  Modbus register array  (defined in base_system.c)
  * ─────────────────────────────────────────────────────────────────────────────*/

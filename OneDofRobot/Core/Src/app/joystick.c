@@ -21,7 +21,6 @@
 /* ── External state ──────────────────────────────────────────────────────── */
 extern volatile float q_out;   /* actual position [rad] — from cascade_control.c */
 extern volatile SystemMode_t current_system_mode;
-extern volatile uint16_t estop_brake_ticks;   /* hybrid e-stop brake (main.c) */
 
 /* ══════════════════════════════════════════════════════════════════════════
  *  ADC2 bare-metal helpers (PC3 = ADC2_IN9)

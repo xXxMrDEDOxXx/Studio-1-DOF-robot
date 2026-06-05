@@ -21,6 +21,7 @@
 
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
+#include <stdio.h>            /* snprintf — USART1 stream → MATLAB              */
 #include "base_system.h"      /* Register map, SystemMode_t, modbus_registers[] */
 #include "cascade_control.h"
 #include "trajectory.h"
@@ -32,7 +33,6 @@
 #include "can_gripper.h"      /* CAN relay node backend for gripper outputs     */
 #include "test_mode.h"        /* Performance & Precision test (MODE_TEST)       */
 #include "joystick.h"         /* Funduino Joystick Shield (MODE_MANUAL only)    */
-#include "datalog.h"          /* 1 kHz burst data logger (Lab 4)                */
 #include "volt_test.h"        /* Open-loop voltage excitation (Lab 1 ID)        */
 /* USER CODE END Includes */
 
@@ -60,6 +60,7 @@ TIM_HandleTypeDef htim1;
 TIM_HandleTypeDef htim2;
 TIM_HandleTypeDef htim6;
 
+UART_HandleTypeDef huart1;
 UART_HandleTypeDef huart2;
 
 /* USER CODE BEGIN PV */
@@ -69,8 +70,6 @@ UART_HandleTypeDef huart2;
  * G474 internal sensor: ADC1 CH16, cal @ VDDA=3.0V
  * ───────────────────────────────────────────────────────────────────────*/
 volatile float chip_temp_C = 0.0f;
-volatile uint32_t debug_uart_rx_count = 0;   /* นับทุกครั้งที่ UART3 ได้รับ frame */
-volatile uint32_t debug_modbus_ok_count = 0; /* นับทุกครั้งที่ Modbus_Parse_Frame ถูกเรียก */
 
 /* ── Live Expressions: operating mode & emergency ────────────────────────
  * ดูค่าใน Live Expressions:
@@ -89,13 +88,11 @@ Encoder_t henc2;
 volatile SelectorMode_t selector_mode      = SELECTOR_MANUAL; /* physical switch */
 volatile SystemMode_t   current_system_mode = MODE_HOMING;    /* actual mode     */
 
-/* hybrid e-stop: >0 = กำลังเบรกนุ่มก่อนตัด MOE (นับถอยใน TIM6 ISR) */
-volatile uint16_t estop_brake_ticks = 0;
-
 uint8_t rx_buffer[128];
 
+DMA_HandleTypeDef hdma_usart1_tx;   /* USART1 TX DMA (stream → MATLAB 1kHz) */
 
-/* tune variables ย้ายไป velocity_tune.c แล้ว */
+
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
@@ -107,8 +104,11 @@ static void MX_TIM6_Init(void);
 static void MX_USART2_UART_Init(void);
 static void MX_FDCAN1_Init(void);
 static void MX_ADC1_Init(void);
+static void MX_USART1_UART_Init(void);
 /* USER CODE BEGIN PFP */
 //Update_Telemetry_To_PC(void);
+static void Stream_Update(void);   /* USART1 stream → MATLAB (นิยามใน USER CODE 4) */
+static void Stream_DMA_Init(void); /* USART1 TX DMA init */
 /* USER CODE END PFP */
 
 /* Private user code ---------------------------------------------------------*/
@@ -217,8 +217,6 @@ void HAL_UARTEx_RxEventCallback(UART_HandleTypeDef *huart, uint16_t Size)
 {
     if (huart->Instance != USART2) return;
 
-    debug_uart_rx_count++;   /* ทุก frame ที่เข้ามา (รวม echo) */
-
     if (Size < 8 || rx_buffer[0] != SLAVE_ID) {
         HAL_UARTEx_ReceiveToIdle_IT(&huart2, rx_buffer, sizeof(rx_buffer));
         return;
@@ -259,7 +257,6 @@ void HAL_UARTEx_RxEventCallback(UART_HandleTypeDef *huart, uint16_t Size)
     memcpy(frame_copy, rx_buffer, len);
 
     HAL_UARTEx_ReceiveToIdle_IT(&huart2, rx_buffer, sizeof(rx_buffer));
-    debug_modbus_ok_count++;   /* frame ผ่าน echo filter แล้ว → parse */
     Modbus_Parse_Frame(frame_copy, len);
 }
 
@@ -314,11 +311,13 @@ int main(void)
   MX_USART2_UART_Init();
   MX_FDCAN1_Init();
   MX_ADC1_Init();
+  MX_USART1_UART_Init();
   /* USER CODE BEGIN 2 */
 
   /* ── Heartbeat/Modbus ขึ้นก่อนเพื่อนใน USER CODE 2 → หลัง NVIC reset base system
    *    เห็น "alive" ไวสุด (USART2 init แล้วใน auto region ด้านบน) ──────────────*/
   Heartbeat_Init();
+  HAL_UART_Transmit(&huart1, (uint8_t*)"UART1 OK\r\n", 10, 100);
   HAL_UARTEx_EnableFifoMode(&huart2);  /* เปิด RX FIFO 8 byte — margin กัน overrun */
   __HAL_UART_CLEAR_OREFLAG(&huart2);   /* เคลียร์ error flags ก่อน */
   HAL_UARTEx_ReceiveToIdle_IT(&huart2, rx_buffer, sizeof(rx_buffer));
@@ -339,8 +338,8 @@ int main(void)
   Gripper_Init();
   TestMode_Init();
   Joystick_Init();
-  DataLog_Init();
   VoltTest_Init();
+  Stream_DMA_Init();        /* USART1 TX DMA — stream 1kHz → MATLAB */
 
   current_system_mode            = MODE_HOMING;
   modbus_registers[REG_SYS_MODE] = MODE_HOMING;
@@ -360,6 +359,7 @@ int main(void)
 
       Heartbeat_Update();
       CanGripper_Update();
+      Stream_Update();          /* USART1 → MATLAB (~500 Hz) */
 
       /* ── Selector Switch — อ่านตลอดเวลา, priority สูงสุด ──────────────
        *  TIM6 ISR จะบังคับ mode ตาม selector_mode ทุก tick
@@ -524,7 +524,7 @@ static void MX_FDCAN1_Init(void)
   hfdcan1.Init.DataSyncJumpWidth = 1;
   hfdcan1.Init.DataTimeSeg1 = 1;
   hfdcan1.Init.DataTimeSeg2 = 1;
-  hfdcan1.Init.StdFiltersNbr = 5;
+  hfdcan1.Init.StdFiltersNbr = 4;
   hfdcan1.Init.ExtFiltersNbr = 0;
   hfdcan1.Init.TxFifoQueueMode = FDCAN_TX_FIFO_OPERATION;
   if (HAL_FDCAN_Init(&hfdcan1) != HAL_OK)
@@ -707,6 +707,54 @@ static void MX_TIM6_Init(void)
 }
 
 /**
+  * @brief USART1 Initialization Function
+  * @param None
+  * @retval None
+  */
+static void MX_USART1_UART_Init(void)
+{
+
+  /* USER CODE BEGIN USART1_Init 0 */
+
+  /* USER CODE END USART1_Init 0 */
+
+  /* USER CODE BEGIN USART1_Init 1 */
+
+  /* USER CODE END USART1_Init 1 */
+  huart1.Instance = USART1;
+  huart1.Init.BaudRate = 921600;
+  huart1.Init.WordLength = UART_WORDLENGTH_8B;
+  huart1.Init.StopBits = UART_STOPBITS_1;
+  huart1.Init.Parity = UART_PARITY_NONE;
+  huart1.Init.Mode = UART_MODE_TX_RX;
+  huart1.Init.HwFlowCtl = UART_HWCONTROL_NONE;
+  huart1.Init.OverSampling = UART_OVERSAMPLING_16;
+  huart1.Init.OneBitSampling = UART_ONE_BIT_SAMPLE_DISABLE;
+  huart1.Init.ClockPrescaler = UART_PRESCALER_DIV1;
+  huart1.AdvancedInit.AdvFeatureInit = UART_ADVFEATURE_NO_INIT;
+  if (HAL_UART_Init(&huart1) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  if (HAL_UARTEx_SetTxFifoThreshold(&huart1, UART_TXFIFO_THRESHOLD_1_8) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  if (HAL_UARTEx_SetRxFifoThreshold(&huart1, UART_RXFIFO_THRESHOLD_1_8) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  if (HAL_UARTEx_DisableFifoMode(&huart1) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  /* USER CODE BEGIN USART1_Init 2 */
+
+  /* USER CODE END USART1_Init 2 */
+
+}
+
+/**
   * @brief USART2 Initialization Function
   * @param None
   * @retval None
@@ -776,7 +824,7 @@ static void MX_GPIO_Init(void)
   HAL_GPIO_WritePin(Motor_Dir_GPIO_Port, Motor_Dir_Pin, GPIO_PIN_RESET);
 
   /*Configure GPIO pin Output Level */
-  HAL_GPIO_WritePin(GPIOC, gripper_u_d_Pin|gripper_o_c_Pin, GPIO_PIN_RESET);  /* arm↑ + jaw open = safe (polarity สลับ) */
+  HAL_GPIO_WritePin(GPIOC, gripper_u_d_Pin|gripper_o_c_Pin, GPIO_PIN_SET);
 
   /*Configure GPIO pin : E_stop_Pin */
   GPIO_InitStruct.Pin = E_stop_Pin;
@@ -791,9 +839,9 @@ static void MX_GPIO_Init(void)
   GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
   HAL_GPIO_Init(GPIOC, &GPIO_InitStruct);
 
-  /*Configure GPIO pins : Homing_signal_Pin PA5 PA6 PA7
+  /*Configure GPIO pins : Homing_signal_Pin A_Pin B_Pin C_Pin
                            reed_down_Pin */
-  GPIO_InitStruct.Pin = Homing_signal_Pin|GPIO_PIN_5|GPIO_PIN_6|GPIO_PIN_7
+  GPIO_InitStruct.Pin = Homing_signal_Pin|A_Pin|B_Pin|C_Pin
                           |reed_down_Pin;
   GPIO_InitStruct.Mode = GPIO_MODE_INPUT;
   GPIO_InitStruct.Pull = GPIO_NOPULL;
@@ -805,8 +853,8 @@ static void MX_GPIO_Init(void)
   GPIO_InitStruct.Pull = GPIO_PULLUP;
   HAL_GPIO_Init(GPIOB, &GPIO_InitStruct);
 
-  /*Configure GPIO pins : PB10 PB11 reed_open_Pin reed_close_Pin */
-  GPIO_InitStruct.Pin = GPIO_PIN_10|GPIO_PIN_11|reed_open_Pin|reed_close_Pin;
+  /*Configure GPIO pins : K_Pin D_Pin reed_open_Pin reed_close_Pin */
+  GPIO_InitStruct.Pin = K_Pin|D_Pin|reed_open_Pin|reed_close_Pin;
   GPIO_InitStruct.Mode = GPIO_MODE_INPUT;
   GPIO_InitStruct.Pull = GPIO_NOPULL;
   HAL_GPIO_Init(GPIOB, &GPIO_InitStruct);
@@ -827,7 +875,58 @@ static void MX_GPIO_Init(void)
 }
 
 /* USER CODE BEGIN 4 */
-/* VelocityTune_Update() ย้ายไป Core/Src/velocity_tune.c แล้ว */
+
+/* ── USART1 stream → MATLAB (PB6=TX, DMA) ───────────────────────────────────
+ *  ส่ง CSV 8 ช่อง int×1000 ที่ 1 kHz ผ่าน DMA (non-blocking — ไม่กิน main loop)
+ *  คอลัมน์: q_ref,qd_ref,qdd_ref,jerk_ref,q_out,qd_out,qdd_out,V  (MATLAB หาร 1000)
+ *  DMA1_Channel2 + DMA_REQUEST_USART1_TX (ADC ใช้ Ch1 อยู่ → ใช้ Ch2)            */
+extern volatile float ref_j;   /* jerk-ref (auto_mission.c) */
+
+static void Stream_DMA_Init(void)
+{
+    __HAL_RCC_DMA1_CLK_ENABLE();
+    __HAL_RCC_DMAMUX1_CLK_ENABLE();
+
+    hdma_usart1_tx.Instance                 = DMA1_Channel2;
+    hdma_usart1_tx.Init.Request             = DMA_REQUEST_USART1_TX;
+    hdma_usart1_tx.Init.Direction           = DMA_MEMORY_TO_PERIPH;
+    hdma_usart1_tx.Init.PeriphInc           = DMA_PINC_DISABLE;
+    hdma_usart1_tx.Init.MemInc              = DMA_MINC_ENABLE;
+    hdma_usart1_tx.Init.PeriphDataAlignment = DMA_PDATAALIGN_BYTE;
+    hdma_usart1_tx.Init.MemDataAlignment    = DMA_MDATAALIGN_BYTE;
+    hdma_usart1_tx.Init.Mode                = DMA_NORMAL;
+    hdma_usart1_tx.Init.Priority            = DMA_PRIORITY_LOW;
+    HAL_DMA_Init(&hdma_usart1_tx);
+
+    __HAL_LINKDMA(&huart1, hdmatx, hdma_usart1_tx);
+
+    /* IRQ — priority ต่ำกว่า TIM6 control (เลขมาก = ด่วนน้อย) ไม่กวน 1kHz loop */
+    HAL_NVIC_SetPriority(DMA1_Channel2_IRQn, 6, 0);
+    HAL_NVIC_EnableIRQ(DMA1_Channel2_IRQn);
+    HAL_NVIC_SetPriority(USART1_IRQn, 6, 0);
+    HAL_NVIC_EnableIRQ(USART1_IRQn);
+}
+
+/* IRQ handlers (override weak symbol จาก startup) */
+void DMA1_Channel2_IRQHandler(void) { HAL_DMA_IRQHandler(&hdma_usart1_tx); }
+void USART1_IRQHandler(void)        { HAL_UART_IRQHandler(&huart1); }
+
+static void Stream_Update(void)
+{
+    static uint32_t last = 0;
+    if (HAL_GetTick() - last < 1U) return;              /* 1 kHz */
+    last = HAL_GetTick();
+    if (huart1.gState != HAL_UART_STATE_READY) return;  /* DMA ก่อนยังไม่เสร็จ → ข้าม sample */
+
+    static char buf[100];                               /* static: DMA อ่านระหว่าง main loop รันต่อ */
+    int n = snprintf(buf, sizeof(buf),
+        "%ld,%ld,%ld,%ld,%ld,%ld,%ld,%ld\r\n",
+        (long)(mon_q_ref  * 1000.0f), (long)(mon_qd_ref  * 1000.0f),
+        (long)(mon_qdd_ref* 1000.0f), (long)(ref_j       * 1000.0f),
+        (long)(mon_q_out  * 1000.0f), (long)(mon_qd_out  * 1000.0f),
+        (long)(mon_qdd_out* 1000.0f), (long)(mon_v_in    * 1000.0f));
+    if (n > 0) HAL_UART_Transmit_DMA(&huart1, (uint8_t *)buf, (uint16_t)n);
+}
 
 void HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin)
 {
@@ -883,8 +982,6 @@ void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim)
     debug_selector = (uint8_t)selector_mode;
     debug_estop    = (uint8_t)modbus_registers[REG_ESTOP];
 
-    /* 1 kHz data logger — handle arm/abort + sync status (Lab 4 burst) */
-    DataLog_Service();
 
     /* ══════════════════════════════════════════════════════════════════════
      *  Priority 1 (สูงสุด): Homing กำลังทำงานอยู่ — ห้ามแทรก

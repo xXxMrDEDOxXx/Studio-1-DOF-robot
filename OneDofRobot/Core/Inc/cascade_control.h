@@ -36,6 +36,10 @@ extern volatile float monitor_V_in;     // แรงดัน magnitude (display
 extern volatile float monitor_V_signed;  // แรงดัน signed clamped (telemetry/analysis)
 extern volatile float g_traj_span_rad;   // ระยะ move ปัจจุบัน |target−start| [rad]
                                          //   ตั้งโดย *_MoveTo() — ใช้ gate backlash comp
+/* Real-time monitor mirrors (CubeMonitor) — jerk-ref ดู ref_j ใน auto_mission.c */
+extern volatile float mon_q_ref, mon_qd_ref, mon_qdd_ref;
+extern volatile float mon_q_out, mon_qd_out, mon_qdd_out, mon_j_out;
+extern volatile float mon_v_in;
 
 // ---------------- Public Function Prototypes ----------------
 void Cascade_Control_Init(void);

@@ -8,7 +8,6 @@
 "./Core/Src/app/volt_test.o"
 "./Core/Src/comm/base_system.o"
 "./Core/Src/lib/cascade_control.o"
-"./Core/Src/lib/datalog.o"
 "./Core/Src/lib/encoder.o"
 "./Core/Src/lib/kalman_filter.o"
 "./Core/Src/lib/trajectory.o"

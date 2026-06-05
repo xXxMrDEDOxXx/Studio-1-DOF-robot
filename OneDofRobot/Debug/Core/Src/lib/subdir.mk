@@ -6,21 +6,18 @@
 # Add inputs and outputs from these tool invocations to the build variables 
 C_SRCS += \
 ../Core/Src/lib/cascade_control.c \
-../Core/Src/lib/datalog.c \
 ../Core/Src/lib/encoder.c \
 ../Core/Src/lib/kalman_filter.c \
 ../Core/Src/lib/trajectory.c 
 
 OBJS += \
 ./Core/Src/lib/cascade_control.o \
-./Core/Src/lib/datalog.o \
 ./Core/Src/lib/encoder.o \
 ./Core/Src/lib/kalman_filter.o \
 ./Core/Src/lib/trajectory.o 
 
 C_DEPS += \
 ./Core/Src/lib/cascade_control.d \
-./Core/Src/lib/datalog.d \
 ./Core/Src/lib/encoder.d \
 ./Core/Src/lib/kalman_filter.d \
 ./Core/Src/lib/trajectory.d 
@@ -33,7 +30,7 @@ Core/Src/lib/%.o Core/Src/lib/%.su Core/Src/lib/%.cyclo: ../Core/Src/lib/%.c Cor
 clean: clean-Core-2f-Src-2f-lib
 
 clean-Core-2f-Src-2f-lib:
-	-$(RM) ./Core/Src/lib/cascade_control.cyclo ./Core/Src/lib/cascade_control.d ./Core/Src/lib/cascade_control.o ./Core/Src/lib/cascade_control.su ./Core/Src/lib/datalog.cyclo ./Core/Src/lib/datalog.d ./Core/Src/lib/datalog.o ./Core/Src/lib/datalog.su ./Core/Src/lib/encoder.cyclo ./Core/Src/lib/encoder.d ./Core/Src/lib/encoder.o ./Core/Src/lib/encoder.su ./Core/Src/lib/kalman_filter.cyclo ./Core/Src/lib/kalman_filter.d ./Core/Src/lib/kalman_filter.o ./Core/Src/lib/kalman_filter.su ./Core/Src/lib/trajectory.cyclo ./Core/Src/lib/trajectory.d ./Core/Src/lib/trajectory.o ./Core/Src/lib/trajectory.su
+	-$(RM) ./Core/Src/lib/cascade_control.cyclo ./Core/Src/lib/cascade_control.d ./Core/Src/lib/cascade_control.o ./Core/Src/lib/cascade_control.su ./Core/Src/lib/encoder.cyclo ./Core/Src/lib/encoder.d ./Core/Src/lib/encoder.o ./Core/Src/lib/encoder.su ./Core/Src/lib/kalman_filter.cyclo ./Core/Src/lib/kalman_filter.d ./Core/Src/lib/kalman_filter.o ./Core/Src/lib/kalman_filter.su ./Core/Src/lib/trajectory.cyclo ./Core/Src/lib/trajectory.d ./Core/Src/lib/trajectory.o ./Core/Src/lib/trajectory.su
 
 .PHONY: clean-Core-2f-Src-2f-lib
 

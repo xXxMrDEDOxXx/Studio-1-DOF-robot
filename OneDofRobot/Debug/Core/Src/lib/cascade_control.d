@@ -34,8 +34,7 @@ Core/Src/lib/cascade_control.o: ../Core/Src/lib/cascade_control.c \
  ../Drivers/STM32G4xx_HAL_Driver/Inc/stm32g4xx_hal_uart.h \
  ../Drivers/STM32G4xx_HAL_Driver/Inc/stm32g4xx_hal_uart_ex.h \
  ../Core/Inc/encoder.h ../Core/Inc/trajectory.h ../Core/Inc/encoder.h \
- ../Core/Inc/kalman_filter.h ../Core/Inc/base_system.h \
- ../Core/Inc/datalog.h
+ ../Core/Inc/kalman_filter.h ../Core/Inc/base_system.h
 ../Core/Inc/cascade_control.h:
 ../Core/Inc/main.h:
 ../Drivers/STM32G4xx_HAL_Driver/Inc/stm32g4xx_hal.h:
@@ -76,4 +75,3 @@ Core/Src/lib/cascade_control.o: ../Core/Src/lib/cascade_control.c \
 ../Core/Inc/encoder.h:
 ../Core/Inc/kalman_filter.h:
 ../Core/Inc/base_system.h:
-../Core/Inc/datalog.h:

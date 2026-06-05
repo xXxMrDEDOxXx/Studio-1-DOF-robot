@@ -11,7 +11,6 @@
 #include "trajectory.h"
 #include "kalman_filter.h"
 #include "base_system.h"   /* modbus_registers[] */
-#include "datalog.h"       /* DataLog_Sample (1 kHz burst capture) */
 #include <math.h>
 
 // ---------------- ดึงค่าฮาร์ดแวร์จาก main.c ----------------
@@ -27,6 +26,14 @@ static   float kf_V_in          = 0.0f;  /* SIGNED สำหรับ Kalman Fil
 /* ระยะ move ปัจจุบัน |target−start| [rad] — *_MoveTo() เป็นคนตั้ง (ดู trajectory.c)
  * ใช้ gate backlash comp: move สั้น (<120°) ปิด comp ป้องกันสั่น/ไม่ smooth */
 volatile float g_traj_span_rad  = 0.0f;
+
+/* ── Real-time monitor mirrors (STM32CubeMonitor) ────────────────────────────
+ *  global volatile, อัปเดตทุก tick ทุกโหมด (AUTO/MANUAL/TEST) → เลือกใน CubeMonitor ได้เลย
+ *  jerk-ref ดูที่ ref_j (global volatile ใน auto_mission.c)                     */
+volatile float mon_q_ref = 0.0f, mon_qd_ref = 0.0f, mon_qdd_ref = 0.0f;
+volatile float mon_q_out = 0.0f, mon_qd_out = 0.0f, mon_qdd_out = 0.0f;
+volatile float mon_j_out = 0.0f;   /* jerk จริง (measured, จาก j_out) */
+volatile float mon_v_in  = 0.0f;
 
 // ---------------- Private Variables (ตัวแปรภายใน) ----------------
 volatile float q_out = 0.0f;       // ตำแหน่งจริง
@@ -286,6 +293,11 @@ void Cascade_Control_Update_FF(float ref_q, float ref_qd, float ref_qdd)
     j_out = (alpha_j * raw_j) + ((1.0f - alpha_j) * j_out);
     prev_qdd_out = qdd_out;
 
+    /* ── mirror สัญญาณให้ CubeMonitor (ก่อน early-return ของ direct-drive) ── */
+    mon_q_ref = ref_q;   mon_qd_ref = ref_qd;   mon_qdd_ref = ref_qdd;
+    mon_q_out = q_out;   mon_qd_out = qd_out;    mon_qdd_out = qdd_out;   mon_j_out = j_out;
+    mon_v_in  = monitor_V_signed;   /* 1-tick lag — พอสำหรับ monitor */
+
     /* ════════════════════════════════════════════════════════════
      *  PID gain source แยกตาม mode:
      *    MODE_MANUAL → live-update จาก Modbus (dashboard tuning)
@@ -374,8 +386,6 @@ void Cascade_Control_Update_FF(float ref_q, float ref_qd, float ref_qdd)
              *  pos_ctrl.Kp หน่วย [V/rad]   (เช่น Kp=10 → ±10V ต่อ 1 rad error)
              * ════════════════════════════════════════════════════════════ */
             Motor_Drive(pos_div_out);
-            DataLog_Sample(ref_q, q_out, ref_qd, qd_out, ref_qdd,
-                           monitor_V_signed, hkf.est_current);
             return;   /* ← ออกจาก function ทันที ไม่รัน velocity loop */
         }
 
@@ -440,10 +450,6 @@ void Cascade_Control_Update_FF(float ref_q, float ref_qd, float ref_qdd)
     /* 2-DOF: feedforward ล้วน (V_FF+V_acc+V_fric จาก reference สะอาด) + feedback (V_VEL) */
 
     Motor_Drive(V_VEL + V_FF + V_acc + V_fric);
-
-    /* 1 kHz burst capture (Lab 4) — เก็บเฉพาะตอน DataLog_Arm() */
-    DataLog_Sample(ref_q, q_out, ref_qd, qd_out, ref_qdd,
-                   monitor_V_signed, hkf.est_current);
 }
 
 /* ── Open-loop voltage drive (Lab 1 system ID) ───────────────────────────────
@@ -468,8 +474,6 @@ void Cascade_OpenLoopVolt(float V)
     modbus_registers[REG_Q_OUT]  = (uint16_t)(int16_t)(q_out            * 100.0f);
     modbus_registers[REG_EST_I]  = (uint16_t)(int16_t)(hkf.est_current  * 1000.0f);
     modbus_registers[REG_REF_Q]  = 0;
-
-    DataLog_Sample(0.0f, q_out, 0.0f, qd_out, 0.0f, monitor_V_signed, hkf.est_current);
 }
 
 

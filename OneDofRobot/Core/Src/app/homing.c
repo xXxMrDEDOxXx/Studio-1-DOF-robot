@@ -50,6 +50,19 @@ volatile HomingState_t debug_hom_state  = H_IDLE;
 volatile uint32_t      debug_hom_ticks  = 0;
 volatile uint8_t       debug_hom_signal = 0;
 volatile int32_t       debug_zone_count = 0;
+volatile uint32_t      debug_hom_duty   = 0;   /* duty ที่ raw_drive สั่งล่าสุด (0=หยุด) — ดูว่า fw สั่งขับจริงมั้ย */
+
+/* ── prox/Homing_signal active level (รวมที่เดียว) ───────────────────────────
+ *  ON = level เมื่ออยู่บน flag/home.  ถ้า prox active-low (NPN) อ่านกลับ
+ *  → สลับ HOMING_SIGNAL_ON เป็น GPIO_PIN_RESET (กลับทั้งระบบพร้อมกัน)         */
+#define HOMING_SIGNAL_ON   GPIO_PIN_SET
+#define HOMING_SIGNAL_OFF  GPIO_PIN_RESET
+
+static inline uint8_t homing_on_flag(void)
+{
+    return (HAL_GPIO_ReadPin(Homing_signal_GPIO_Port, Homing_signal_Pin)
+            == HOMING_SIGNAL_ON) ? 1U : 0U;
+}
 
 /* ── Helpers ─────────────────────────────────────────────────────────────── */
 static void raw_drive(uint32_t duty)
@@ -57,6 +70,7 @@ static void raw_drive(uint32_t duty)
     HAL_GPIO_WritePin(Motor_Dir_GPIO_Port, Motor_Dir_Pin,
                       (GPIO_PinState)dir_pin);
     __HAL_TIM_SET_COMPARE(&htim1, TIM_CHANNEL_1, duty);
+    debug_hom_duty = duty;
 }
 
 static void raw_drive_opposite(uint32_t duty)
@@ -64,11 +78,13 @@ static void raw_drive_opposite(uint32_t duty)
     HAL_GPIO_WritePin(Motor_Dir_GPIO_Port, Motor_Dir_Pin,
                       (dir_pin == GPIO_PIN_RESET) ? GPIO_PIN_SET : GPIO_PIN_RESET);
     __HAL_TIM_SET_COMPARE(&htim1, TIM_CHANNEL_1, duty);
+    debug_hom_duty = duty;
 }
 
 static void raw_stop(void)
 {
     __HAL_TIM_SET_COMPARE(&htim1, TIM_CHANNEL_1, 0);
+    debug_hom_duty = 0;
 }
 
 static void zero_encoder(void)
@@ -112,6 +128,10 @@ void Homing_Init(void)
 
 void Homing_Start(void)
 {
+    /* กัน MOE ค้าง disabled (เช่นหลังโดน e-stop PC13/PA5) → homing ขับมอเตอร์ไม่ได้
+     * homing เป็น Priority 1 (ไม่เช็ค ESTOP) → ต้องมั่นใจ output stage เปิดอยู่ */
+    __HAL_TIM_MOE_ENABLE(&htim1);
+
     hom_ticks    = 0;
     zone_count   = 0;
     target_count = 0;
@@ -120,10 +140,8 @@ void Homing_Start(void)
     seek_armed   = 0;
     dir_pin      = GPIO_PIN_RESET;
 
-    /* ถ้า sensor HIGH อยู่แล้ว → ต้องออกจาก zone ก่อน (H_LEAVE)
-     * ถ้า LOW → เริ่ม seek ปกติ */
-    if (HAL_GPIO_ReadPin(Homing_signal_GPIO_Port, Homing_signal_Pin)
-            == GPIO_PIN_SET) {
+    /* อยู่บน flag อยู่แล้ว → ต้องออกจาก zone ก่อน (H_LEAVE); ไม่อยู่ → seek ปกติ */
+    if (homing_on_flag()) {
         hom_state = H_LEAVE;
     } else {
         hom_state = H_SEEK;
@@ -148,8 +166,7 @@ void Homing_Update(void)
         case H_LEAVE:
             raw_drive_opposite(HOMING_LEAVE_DUTY);
 
-            if (HAL_GPIO_ReadPin(Homing_signal_GPIO_Port, Homing_signal_Pin)
-                    == GPIO_PIN_RESET) {
+            if (!homing_on_flag()) {            /* ออกพ้น flag แล้ว */
                 raw_stop();
                 hom_ticks = 0;
                 settle_ticks = 0;
@@ -176,8 +193,7 @@ void Homing_Update(void)
             }
             raw_drive(HOMING_SEEK_DUTY);
 
-            if (HAL_GPIO_ReadPin(Homing_signal_GPIO_Port, Homing_signal_Pin)
-                    == GPIO_PIN_SET) {
+            if (homing_on_flag()) {             /* เจอ flag */
                 raw_stop();
                 /* seek travel จาก reference — เกิน CPR/2 = หมุนผิดฝั่ง */
                 int32_t travel = henc2.position_raw - seek_start_pos;
@@ -206,8 +222,7 @@ void Homing_Update(void)
             raw_drive(HOMING_LEAVE_DUTY);
 
 
-            if (HAL_GPIO_ReadPin(Homing_signal_GPIO_Port, Homing_signal_Pin)
-                    == GPIO_PIN_RESET) {
+            if (!homing_on_flag()) {            /* พ้น flag ฝั่งไกล → ได้ความกว้าง zone */
                 raw_stop();
                 zone_count       = henc2.position_raw;
                 target_count     = zone_count / 2;
