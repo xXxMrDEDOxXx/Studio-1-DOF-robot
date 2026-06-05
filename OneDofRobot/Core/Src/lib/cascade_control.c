@@ -56,6 +56,10 @@ KalmanFilter_t hkf;
 #define POS_KP_AUTO  22.0f
 #define POS_KI_AUTO  8.6f
 #define POS_KD_AUTO  0.0f
+/* gain-schedule POS_KI: hold (ref นิ่ง) ใช้ค่าต่ำ + clamp integral → กัน windup สั่นที่ปลายทาง
+ * (move ใช้ POS_KI_AUTO เต็มเพื่อความแม่น) — แก้ AUTO สั่นโดยไม่ลด accuracy ตอน move */
+#define POS_KI_HOLD   1.0f
+#define POS_HOLD_ILIM 1.0f
 #define VEL_KP_AUTO  8.5f
 #define VEL_KI_AUTO  0.5f
 #define VEL_KD_AUTO  0.0f    /* Kd=0: ตัด derivative kick — backlash step × Kd/dt
@@ -314,8 +318,18 @@ void Cascade_Control_Update_FF(float ref_q, float ref_qd, float ref_qdd)
         pos_ctrl.Kd = (float)(int16_t)modbus_registers[REG_POS_KD] / 100.0f;
     } else {
         /* AUTO / TEST: ใช้ค่า fixed (จูนแล้ว) */
-        pos_ctrl.Kp = POS_KP_AUTO; pos_ctrl.Ki = POS_KI_AUTO; pos_ctrl.Kd = POS_KD_AUTO;
+        pos_ctrl.Kp = POS_KP_AUTO; pos_ctrl.Kd = POS_KD_AUTO;
         vel_ctrl.Kp = VEL_KP_AUTO; vel_ctrl.Ki = VEL_KI_AUTO; vel_ctrl.Kd = VEL_KD_AUTO;
+        /* ── POS_KI gain-schedule (แก้ AUTO สั่นที่ปลายทาง) ──────────────────────
+         *  move (|ref_qd|>0.05) → KI เต็ม 8.6 = track แม่น
+         *  hold (ref นิ่ง)       → KI ต่ำ + clamp integral = ไม่ wind-up = ไม่สั่น     */
+        if (fabsf(ref_qd) > 0.05f) {
+            pos_ctrl.Ki = POS_KI_AUTO;
+        } else {
+            pos_ctrl.Ki = POS_KI_HOLD;
+            if      (pos_ctrl.integral >  POS_HOLD_ILIM) pos_ctrl.integral =  POS_HOLD_ILIM;
+            else if (pos_ctrl.integral < -POS_HOLD_ILIM) pos_ctrl.integral = -POS_HOLD_ILIM;
+        }
     }
 
     /* ════════════════════════════════════════════════════════════
