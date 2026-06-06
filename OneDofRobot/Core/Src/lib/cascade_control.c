@@ -36,6 +36,27 @@ volatile float mon_q_out = 0.0f, mon_qd_out = 0.0f, mon_qdd_out = 0.0f;
 volatile float mon_j_out = 0.0f;   /* jerk จริง (measured, จาก j_out) */
 volatile float mon_v_in  = 0.0f;
 
+/* ── Lab 3 (Kalman) validation mirrors ───────────────────────────────────────
+ *  mon_qd_fd = finite-difference velocity ดิบจาก encoder (dq/dt, ไม่ผ่าน KF)
+ *              → เทียบกับ mon_qd_out (KF) ดู noise/smoothness (item 5)
+ *  mon_tau_d = KF disturbance estimate τ_d [N.m]  (item 2 — บทบาท state τ_d)
+ *  mon_i_est = KF current estimate i     [A]      (item 2 — บทบาท state i)       */
+volatile float mon_qd_fd = 0.0f, mon_tau_d = 0.0f, mon_i_est = 0.0f;
+
+/* ── Lab 3 item 4: Q/R live-tunable (แก้ผ่าน Live Expressions ตอน analysis_mode) ──
+ *  แก้ tune_q_vel / tune_r_meas แล้วโค้ดโหลดเข้า hkf ทุก tick → ค่านิ่ง ไม่เด้งกลับ
+ *  (แก้ hkf.Q[1][1] ตรงๆ มักเด้งกลับเพราะ Live Expressions เขียน on-the-fly ไม่ติด)
+ *  ค่าเริ่มต้น = ค่า default ในโค้ด (1e-6 / 1.471e-7)                              */
+volatile float tune_q_vel  = KF_Q_VEL;
+volatile float tune_r_meas = KF_R_MEAS;
+
+/* ── PID debug mirrors (ดูใน CubeMonitor/Live Expressions เพื่อ debug การทำงาน PID) ──
+ *  u_pos  = output pos controller (vel setpoint, ก่อนบวก ref_qd)
+ *  u_vel  = output vel controller (V feedback, ก่อนบวก feedforward)
+ *  V_ff/V_acc/V_fric/V_dist = แต่ละส่วน feedforward → ดูแยกว่าตัวไหนดันแรง       */
+volatile float mon_u_pos = 0.0f, mon_u_vel = 0.0f;
+volatile float mon_v_ff  = 0.0f, mon_v_acc = 0.0f, mon_v_fric = 0.0f, mon_v_dist = 0.0f;
+
 // ---------------- Private Variables (ตัวแปรภายใน) ----------------
 volatile float q_out = 0.0f;       // ตำแหน่งจริง
 static float prev_q_out = 0.0f;
@@ -54,19 +75,25 @@ KalmanFilter_t hkf;
  *  ใช้ตอน MODE_AUTO/TEST (dashboard เขียน Modbus ทับไม่ได้)
  *  MODE_MANUAL ใช้ค่าจาก Modbus แทน (สำหรับ tune)
  * ─────────────────────────────────────────────────────────────────────────── */
-#define POS_KP_AUTO  22.0f
-#define POS_KI_AUTO  8.6f
-#define POS_KD_AUTO  0.0f
-#define VEL_KP_AUTO  8.5f
-#define VEL_KI_AUTO  0.5f
-#define VEL_KD_AUTO  0.0f    /* Kd=0: ตัด derivative kick — backlash step × Kd/dt
-                              * = 27V spike ทุกครั้งเปลี่ยนทิศ (ดู troubleshoot) */
+//#define POS_KP_AUTO  15.0f
+//#define POS_KI_AUTO  2.0f
+//#define POS_KD_AUTO  0.0f
+//#define VEL_KP_AUTO  8.0f
+//#define VEL_KI_AUTO  0.5f
+//#define VEL_KD_AUTO  0.0f    /* Kd=0: ตัด derivative kick — backlash step × Kd/dt
+//                              * = 27V spike ทุกครั้งเปลี่ยนทิศ (ดู troubleshoot) */
+volatile float tune_pos_kp = 15.0f;
+ volatile float tune_pos_ki = 8.0f;
+ volatile float tune_pos_kd = 0.0f;
 
+ volatile float tune_vel_kp = 5.0f;
+ volatile float tune_vel_ki = 0.5f;
+ volatile float tune_vel_kd = 0.0f;
 // ---------------- Setup PID Controllers ----------------
-PID_Controller pos_ctrl = { .integral = 0.0f, .prev_error = 0.0f, .integral_limit = 15.0f };
+PID_Controller pos_ctrl = { .integral = 0.0f, .prev_error = 0.0f, .integral_limit = 1.0f };
 /* integral_limit = 10 ใช้ได้ทั้ง cascade mode (output เป็น rad/s clamp ที่ ±10 อยู่แล้ว)
  * และ direct drive mode (output เป็น V — 10V ต่ำกว่า MAX_VOLTAGE 24V อย่างปลอดภัย)              */
-PID_Controller vel_ctrl = { .integral = 0.0f, .prev_error = 0.0f, .integral_limit = 8.0f };
+PID_Controller vel_ctrl = { .integral = 0.0f, .prev_error = 0.0f, .integral_limit = 1.0f };
 /* integral_limit = 6.0f (ไม่ใช่ MAX_VOLTAGE):
  *   จำกัด Ki × integral ≤ ±6V → ป้องกัน integral windup ที่ทำให้ bang-bang saturate
  *   Anti-windup check อยู่ใน calculate_pid() → ไม่ต้อง flush integral ด้วยตนเอง
@@ -274,6 +301,12 @@ void Cascade_Control_Update_FF(float ref_q, float ref_qd, float ref_qdd)
     Encoder_Update(&henc2);
     float z_enc = Encoder_GetPositionRad(&henc2);
 
+    /* ── Lab 3 item 5: finite-difference velocity ดิบ (วิธีอื่น เทียบ KF) ──
+     *  ดิบ ไม่กรอง → เห็น quantization noise เต็มๆ เพื่อเทียบ smoothness ของ KF */
+    static float prev_z_fd = 0.0f;
+    mon_qd_fd = (z_enc - prev_z_fd) / KF_DT;
+    prev_z_fd = z_enc;
+
     /* ── [ใหม่] รัน Kalman Filter ──
      *   monitor_V_in ถูก set ใน Motor_Drive() รอบก่อนหน้า (1-step lag ยอมรับได้)
      */
@@ -282,6 +315,17 @@ void Cascade_Control_Update_FF(float ref_q, float ref_qd, float ref_qdd)
     /* ── รับค่า state จาก KF แทนการคำนวณแบบเดิม ── */
     q_out  = hkf.est_position;
     qd_out = hkf.est_velocity;
+
+    /* ── Lab 3 item 2: mirror state ที่ไม่ได้วัดตรงๆ (τ_d, i) ออกไป log ── */
+    mon_tau_d = hkf.est_disturbance;
+    mon_i_est = hkf.est_current;
+
+    /* ── Lab 3 item 4: โหลด Q/R จากตัวแปร tune (เฉพาะ analysis_mode) ──
+     *  มีผลรอบ KF_Update ถัดไป → แก้ tune_q_vel/tune_r_meas สดได้ ไม่ต้อง reflash */
+    if (analysis_mode == 1) {
+        hkf.Q[1][1] = tune_q_vel;
+        hkf.R_meas  = tune_r_meas;
+    }
 
     /* ── qdd, jerk: คำนวณจาก qd_out ที่ smooth แล้วของ KF ── */
     float raw_qdd = (qd_out - prev_qd_kf) / KF_DT;
@@ -315,8 +359,10 @@ void Cascade_Control_Update_FF(float ref_q, float ref_qd, float ref_qdd)
         pos_ctrl.Kd = (float)(int16_t)modbus_registers[REG_POS_KD] / 100.0f;
     } else {
         /* AUTO / TEST: ใช้ค่า fixed (จูนแล้ว) */
-        pos_ctrl.Kp = POS_KP_AUTO; pos_ctrl.Ki = POS_KI_AUTO; pos_ctrl.Kd = POS_KD_AUTO;
-        vel_ctrl.Kp = VEL_KP_AUTO; vel_ctrl.Ki = VEL_KI_AUTO; vel_ctrl.Kd = VEL_KD_AUTO;
+//        pos_ctrl.Kp = POS_KP_AUTO; pos_ctrl.Ki = POS_KI_AUTO; pos_ctrl.Kd = POS_KD_AUTO;
+//        vel_ctrl.Kp = VEL_KP_AUTO; vel_ctrl.Ki = VEL_KI_AUTO; vel_ctrl.Kd = VEL_KD_AUTO;
+    	pos_ctrl.Kp = tune_pos_kp; pos_ctrl.Ki = tune_pos_ki; pos_ctrl.Kd = tune_pos_kd;
+		vel_ctrl.Kp = tune_vel_kp; vel_ctrl.Ki = tune_vel_ki; vel_ctrl.Kd = tune_vel_kd;
     }
 
     /* ════════════════════════════════════════════════════════════
@@ -368,7 +414,7 @@ void Cascade_Control_Update_FF(float ref_q, float ref_qd, float ref_qdd)
      *  ถ้า pos_ctrl.Kp == 0  →  velocity-only mode (bypass)
      * ════════════════════════════════════════════════════════════ */
     if (pos_ctrl.Kp != 0.0f) {
-        /* ── Pos loop divider: คำนวณใหม่ทุก POS_DIV ticks (1 = ทุก 1ms, ไม่ staircase) ── */
+        /* ── Pos loop divider: คำนวณใหม่ทุก POS_DIV ticks (5 = ทุก 1ms, ไม่ staircase) ── */
         if (++pos_div_tick >= POS_DIV) {
             pos_div_tick = 0;
             float q_error = ref_q_comp - q_out;
@@ -378,6 +424,8 @@ void Cascade_Control_Update_FF(float ref_q, float ref_qd, float ref_qdd)
             else if (V_or_qd < -10.0f) V_or_qd = -10.0f;
             pos_div_out = V_or_qd;
         }
+
+        mon_u_pos = pos_div_out;
 
         if (modbus_registers[REG_DRIVE_MODE] != 0) {
             /* ════════════════════════════════════════════════════════════
@@ -407,14 +455,15 @@ void Cascade_Control_Update_FF(float ref_q, float ref_qd, float ref_qdd)
      * ════════════════════════════════════════════════════════════ */
     float qd_error = current_q_dot_ref - qd_out;
     float V_VEL    = calculate_pid(&vel_ctrl, qd_error, DT_VEL);
+    mon_u_vel = V_VEL;
 
     /* Feed Forward (velocity) */
     float V_FF = K_ff * ref_qd;
-
+    mon_v_ff = V_FF;
     /* Acceleration Feedforward (inverse dynamics) — pre-supply แรงเร่ง inertia
      * จาก q̈_ref (Quintic) → feedback ไม่ต้องแบก → lag ลด แม่นขึ้น */
     float V_acc = K_ACC * ref_qdd;
-
+    mon_v_acc = V_acc;
     /* ── Coulomb / Deadband Feedforward (noise-free) ────────────────────────
      *  ดัน bias ตามทิศ ref_qd ให้ทะลุ deadband โดยไม่ขยาย measurement noise
      *  ใช้ ref_qd (trajectory, สะอาด) ผ่าน saturated-sign เพื่อ ramp นุ่มใกล้ 0 */
@@ -422,7 +471,7 @@ void Cascade_Control_Update_FF(float ref_q, float ref_qd, float ref_qdd)
     if      (qd_n >  1.0f) qd_n =  1.0f;
     else if (qd_n < -1.0f) qd_n = -1.0f;
     float V_fric = V_COULOMB * qd_n;
-
+    mon_v_fric = V_fric;
     /*
      *  Disturbance Feed-Forward จาก KF
      *  ────────────────────────────────────────────
@@ -441,6 +490,7 @@ void Cascade_Control_Update_FF(float ref_q, float ref_qd, float ref_qdd)
     float vel_fade = fabsf(qd_out) / 1.0f;
     if (vel_fade > 1.0f) vel_fade = 1.0f;
     V_dist *= vel_fade;
+    mon_v_dist = V_dist;
     (void)V_dist;   /* ── ปิดใช้งาน V_dist ──
                      *  แกนหมุนระนาบแนวนอน → ไม่มี gravity torque → V_dist
                      *  (KF tau_d observer) ไม่มีอะไรให้ compensate แต่เอา noise
@@ -450,7 +500,8 @@ void Cascade_Control_Update_FF(float ref_q, float ref_qd, float ref_qdd)
 
     /* 2-DOF: feedforward ล้วน (V_FF+V_acc+V_fric จาก reference สะอาด) + feedback (V_VEL) */
 
-    Motor_Drive(V_VEL + V_FF + V_acc + V_fric);
+    //Motor_Drive(V_VEL + V_FF + V_acc + V_fric);
+    Motor_Drive(V_VEL + V_FF );
 }
 
 /* ── Open-loop voltage drive (Lab 1 system ID) ───────────────────────────────

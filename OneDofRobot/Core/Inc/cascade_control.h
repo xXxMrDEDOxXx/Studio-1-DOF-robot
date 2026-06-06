@@ -39,8 +39,12 @@ extern volatile float g_traj_span_rad;   // ระยะ move ปัจจุบ
 /* Real-time monitor mirrors (CubeMonitor) — jerk-ref ดู ref_j ใน auto_mission.c */
 extern volatile float mon_q_ref, mon_qd_ref, mon_qdd_ref;
 extern volatile float mon_q_out, mon_qd_out, mon_qdd_out, mon_j_out;
-extern volatile float mon_v_in;
-
+extern volatile float mon_v_in, mon_v_ff, mon_v_acc, mon_v_fric, mon_v_dist;
+extern volatile float mon_u_pos, mon_u_vel;
+/* Lab 3 (Kalman) validation: finite-diff velocity + KF state ที่ไม่ได้วัด (τ_d, i) */
+extern volatile float mon_qd_fd, mon_tau_d, mon_i_est;
+/* Lab 3 item 4: Q/R live-tunable (analysis_mode) — แก้ผ่าน Live Expressions */
+extern volatile float tune_q_vel, tune_r_meas;
 // ---------------- Public Function Prototypes ----------------
 void Cascade_Control_Init(void);
 void Cascade_Control_Update(float ref_q, float ref_qd);

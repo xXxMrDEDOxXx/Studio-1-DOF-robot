@@ -905,19 +905,78 @@ extern volatile float ref_j;   /* jerk-ref (auto_mission.c) */
 
 /* ── Analysis mode controller: สั่ง move ตาม cmd_deg (Live Expressions) ──────
  *  เขียน cmd_deg → Septic move ไปองศานั้น + cascade (AUTO gains). เก็บ response sys ID */
+/* =================================================================
+ * กำหนด Trajectory ที่ต้องการจะทดสอบ (สำหรับ Lab 3)
+ * 1 = Trapezoidal (ความเร่งเป็นขั้นบันได, Jerk กระชาก)
+ * 2 = S-Curve     (ความเร่งโค้ง, Jerk คงที่)
+ * 3 = Quintic     (S-Curve แบบฟิกเวลา 5th-order)
+ * 4 = Septic      (นุ่มที่สุด Jerk ไม่กระชากเลย 7th-order)
+ * ================================================================= */
+#define TRAJ_SELECT 4   // <--- เปลี่ยนตัวเลขตรงนี้เพื่อสลับโพรไฟล์
+
 static void Analysis_Control(void)
 {
-    static Septic_Profile_t an_septic;
     static float   an_prev = 0.0f;
     static uint8_t an_init = 0;
-    if (!an_init) { Septic_Init(&an_septic); an_prev = cmd_deg; an_init = 1; }
 
-    if (cmd_deg != an_prev) {                       /* เป้าเปลี่ยน → เริ่ม move */
-        Septic_MoveTo(&an_septic, q_out, cmd_deg * (3.14159265f / 180.0f), TRAJ_MOVE_TIME);
+    /* ตัวแปรรับค่าจากโพรไฟล์ */
+    float rq = 0.0f, rqd = 0.0f, rqdd = 0.0f, rj = 0.0f;
+
+/* --------------------------------------------------
+ * 1. Trapezoidal Profile
+ * -------------------------------------------------- */
+#if TRAJ_SELECT == 1
+    static Trapz_Profile_t prof;
+    if (!an_init) { Trapz_Init(&prof); an_prev = cmd_deg; an_init = 1; }
+
+    if (cmd_deg != an_prev) {
+        Trapz_MoveTo(&prof, q_out, cmd_deg * (3.14159265f / 180.0f));
         an_prev = cmd_deg;
     }
-    float rq, rqd, rqdd, rj;
-    Septic_Update(&an_septic, &rq, &rqd, &rqdd, &rj);
+    Trapz_Update(&prof, &rq, &rqd, &rqdd, &rj);
+
+/* --------------------------------------------------
+ * 2. S-Curve Profile
+ * -------------------------------------------------- */
+#elif TRAJ_SELECT == 2
+    static SCurve_Profile_t prof;
+    if (!an_init) { SCurve_Init(&prof); an_prev = cmd_deg; an_init = 1; }
+
+    if (cmd_deg != an_prev) {
+        SCurve_MoveTo(&prof, q_out, cmd_deg * (3.14159265f / 180.0f));
+        an_prev = cmd_deg;
+    }
+    SCurve_Update(&prof, &rq, &rqd, &rqdd, &rj);
+
+/* --------------------------------------------------
+ * 3. Quintic Profile
+ * -------------------------------------------------- */
+#elif TRAJ_SELECT == 3
+    static Quintic_Profile_t prof;
+    if (!an_init) { Quintic_Init(&prof); an_prev = cmd_deg; an_init = 1; }
+
+    if (cmd_deg != an_prev) {
+        Quintic_MoveTo(&prof, q_out, cmd_deg * (3.14159265f / 180.0f), TRAJ_MOVE_TIME);
+        an_prev = cmd_deg;
+    }
+    Quintic_Update(&prof, &rq, &rqd, &rqdd, &rj);
+
+/* --------------------------------------------------
+ * 4. Septic Profile
+ * -------------------------------------------------- */
+#elif TRAJ_SELECT == 4
+    static Septic_Profile_t prof;
+    if (!an_init) { Septic_Init(&prof); an_prev = cmd_deg; an_init = 1; }
+
+    if (cmd_deg != an_prev) {
+        Septic_MoveTo(&prof, q_out, cmd_deg * (3.14159265f / 180.0f), TRAJ_MOVE_TIME);
+        an_prev = cmd_deg;
+    }
+    Septic_Update(&prof, &rq, &rqd, &rqdd, &rj);
+
+#endif
+
+    // ส่งค่า reference (Pos, Vel, Accel) เข้าสู่ระบบควบคุม
     Cascade_Control_Update_FF(rq, rqd, rqdd);
 }
 
@@ -971,15 +1030,34 @@ static void Stream_Update(void)
     last = HAL_GetTick();
     if (huart2.gState != HAL_UART_STATE_READY) return;  /* กันชน Modbus/stream TX ก่อนหน้า */
 
-    int16_t v[8];
-    v[0] = sat16(mon_q_ref   * 1000.0f);  v[1] = sat16(mon_qd_ref  * 1000.0f);
-    v[2] = sat16(mon_qdd_ref *  100.0f);  v[3] = sat16(ref_j       *   10.0f);
-    v[4] = sat16(mon_q_out   * 1000.0f);  v[5] = sat16(mon_qd_out  * 1000.0f);
-    v[6] = sat16(mon_qdd_out *  100.0f);  v[7] = sat16(mon_v_in    * 1000.0f);
+    /* ขยาย Array เป็น 17 ช่อง (14 เดิม + 3 ของ Lab 3) */
+    int16_t v[17];
+    v[0] = sat16(mon_q_ref   * 1000.0f);
+    v[1] = sat16(mon_qd_ref  * 1000.0f);
+    v[2] = sat16(mon_qdd_ref *  100.0f);
+    v[3] = sat16(mon_j_out   *   10.0f);  /* เปลี่ยนจาก ref_j เป็น mon_j_out (actual jerk) */
+    v[4] = sat16(mon_q_out   * 1000.0f);
+    v[5] = sat16(mon_qd_out  * 1000.0f);
+    v[6] = sat16(mon_qdd_out *  100.0f);
+    v[7] = sat16(mon_v_in    * 1000.0f);
 
-    static uint8_t fr[18];                              /* static: IT อ่านระหว่าง main loop รันต่อ */
+    /* ชุดตัวแปร PID debug */
+    v[8]  = sat16(mon_u_pos  * 1000.0f);  /* u หลังออกจาก pos controller (ก่อนบวก ref_qd) */
+    v[9]  = sat16(mon_u_vel  * 1000.0f);  /* u ของ velo controller (V_VEL) */
+    v[10] = sat16(mon_v_ff   * 1000.0f);  /* Feedforward velocity */
+    v[11] = sat16(mon_v_acc  * 1000.0f);  /* Feedforward acceleration */
+    v[12] = sat16(mon_v_fric * 1000.0f);  /* Coulomb / Friction comp */
+    v[13] = sat16(mon_v_dist * 1000.0f);  /* Disturbance comp */
+
+    /* ── ชุด Lab 3 (Kalman) ── */
+    v[14] = sat16(mon_qd_fd  * 1000.0f);  /* finite-diff velocity ดิบ (เทียบ KF, item 5) */
+    v[15] = sat16(mon_tau_d  * 1000.0f);  /* KF disturbance τ_d [N.m]  (item 2) */
+    v[16] = sat16(mon_i_est  * 1000.0f);  /* KF current i      [A]     (item 2) */
+
+    /* ขนาด Frame = Header(2) + (17 ข้อมูล * 2 ไบต์) = 36 ไบต์ */
+    static uint8_t fr[36];
     fr[0] = 0xAA; fr[1] = 0x55;
-    for (int i = 0; i < 8; i++) {
+    for (int i = 0; i < 17; i++) {
         fr[2 + i*2] = (uint8_t)(v[i] & 0xFF);           /* little-endian */
         fr[3 + i*2] = (uint8_t)((v[i] >> 8) & 0xFF);
     }
