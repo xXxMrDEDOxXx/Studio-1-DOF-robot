@@ -83,7 +83,7 @@ KalmanFilter_t hkf;
 //#define VEL_KD_AUTO  0.0f    /* Kd=0: ตัด derivative kick — backlash step × Kd/dt
 //                              * = 27V spike ทุกครั้งเปลี่ยนทิศ (ดู troubleshoot) */
 volatile float tune_pos_kp = 15.0f;
- volatile float tune_pos_ki = 8.0f;
+ volatile float tune_pos_ki = 8.5f;
  volatile float tune_pos_kd = 0.0f;
 
  volatile float tune_vel_kp = 5.0f;
@@ -500,8 +500,8 @@ void Cascade_Control_Update_FF(float ref_q, float ref_qd, float ref_qdd)
 
     /* 2-DOF: feedforward ล้วน (V_FF+V_acc+V_fric จาก reference สะอาด) + feedback (V_VEL) */
 
-    //Motor_Drive(V_VEL + V_FF + V_acc + V_fric);
-    Motor_Drive(V_VEL + V_FF );
+    Motor_Drive(V_VEL + V_FF + V_acc + V_fric);
+   /// Motor_Drive(V_VEL + V_FF );
 }
 
 /* ── Open-loop voltage drive (Lab 1 system ID) ───────────────────────────────

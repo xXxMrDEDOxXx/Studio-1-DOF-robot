@@ -43,7 +43,7 @@
                                  *   = saturate เต็ม → control พัง → กระตุก move ใหญ่ */
 #define TRAJ_QA_MAX     12.0f   /* เพดานความเร่ง [rad/s²] — V_acc=0.768·a; 12 = 9.2V
                                  *   (เดิม 15 = 11.5V) กัน accel saturate รวมกับ V_FF */
-#define TRAJ_MOVE_TIME  0.8f    /* เวลาเป้าหมายต่อ move [s] = "floor" ของ T
+#define TRAJ_MOVE_TIME  2.0f    /* เวลาเป้าหมายต่อ move [s] = "floor" ของ T
                                  *   move ไกลถูก Tv/Ta ยืดเกินค่านี้อยู่แล้ว (ไม่กระทบ)
                                  *   move ใกล้ติด floor นี้ → ยกขึ้น = ชะลอเฉพาะ move สั้น
                                  *   → accel/decel นุ่ม, rod ไม่เหวี่ยง (เดิม 0.5 = เหวี่ยง)

@@ -30,7 +30,10 @@
       "Bash(/c/ST/STM32CubeCLT_1.21.0/STM32CubeProgrammer/bin/STM32_Programmer_CLI.exe -c port=SWD mode=UR -w Debug/OneDofRobot.elf -v -rst)",
       "Bash(cd /c/Users/POND/OneDrive/Documents/GitHub/Studio-1-DOF-robot/OneDofRobot)",
       "Bash(sed -n '54,58p' Core/Src/app/gripper.c)",
-      "Bash(cd /c/Users/POND/OneDrive/Documents/GitHub/Studio-1-DOF-robot && find . -iname \"*lab*\" -not -path \"*/Debug/*\" -not -path \"*/slprj/*\" 2>/dev/null; echo \"---PDF/DOC---\"; find . \\\\\\( -iname \"*.pdf\" -o -iname \"*.docx\" -o -iname \"*.md\" \\\\\\) -not -path \"*/Debug/*\" 2>/dev/null | head -40)"
+      "Bash(cd /c/Users/POND/OneDrive/Documents/GitHub/Studio-1-DOF-robot && find . -iname \"*lab*\" -not -path \"*/Debug/*\" -not -path \"*/slprj/*\" 2>/dev/null; echo \"---PDF/DOC---\"; find . \\\\\\( -iname \"*.pdf\" -o -iname \"*.docx\" -o -iname \"*.md\" \\\\\\) -not -path \"*/Debug/*\" 2>/dev/null | head -40)",
+      "Read(//c/Users/POND/Downloads/**)",
+      "Bash(python -c 'import sys; *)",
+      "Bash(\"/c/Program Files/Git/mingw64/bin/pdftotext.exe\" -layout ProtocolSpec.pdf -)"
     ]
   }
 }

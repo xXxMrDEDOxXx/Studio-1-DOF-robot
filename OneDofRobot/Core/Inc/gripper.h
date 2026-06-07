@@ -34,7 +34,7 @@
 /* ── Output backend ─────────────────────────────────────────────────────────
  *  1 = command external relay node via CAN bus (ProtocolSpec.pdf Node 0x10)
  *  0 = drive the old local GPIO outputs directly                         */
-#define GRIPPER_OUTPUT_BACKEND_CAN  0U
+#define GRIPPER_OUTPUT_BACKEND_CAN  0
 
 /* ── Active levels (ใช้เมื่อ GRIPPER_OUTPUT_BACKEND_CAN = 0) — สลับแล้ว (ทิศกลับ) ── */
 #define GRIP_ARM_DOWN_LVL   GPIO_PIN_SET     /* HIGH = down */
